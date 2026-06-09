@@ -53,6 +53,7 @@
       const [rawData, setRawData] = useState([]);
       const [columns, setColumns] = useState([]);
       const [notes, setNotes] = useState([]);
+      const notesRef = useRef([]);
       const [pastedText, setPastedText] = useState('');
       const [selectedTitleCol, setSelectedTitleCol] = useState('');
       const [selectedRowIndices, setSelectedRowIndices] = useState(new Set());
@@ -68,7 +69,8 @@
       const boardRef = useRef(null);
       const skipInitialSaveRef = useRef(true);
       const editingCursorRef = useRef(null);
-      const [tabs, setTabs] = useState([{ id: 'tab-1', name: 'メインボード' }]);
+      const [tabs, setTabs] = useState([{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
+      const tabsRef = useRef([]);
       const [activeTabId, setActiveTabId] = useState('tab-1');
       const [editingTabId, setEditingTabId] = useState(null);
       const [selectedTabIds, setSelectedTabIds] = useState(new Set(['tab-1']));
@@ -83,6 +85,10 @@
       const clientIdRef = useRef(`client-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const [canUndo, setCanUndo] = useState(false);
       const [firebaseStatus, setFirebaseStatus] = useState('Firebase未設定');
+      const [deletedNoteIds, setDeletedNoteIds] = useState({});
+      const [deletedTabIds, setDeletedTabIds] = useState({});
+      const deletedNoteIdsRef = useRef({});
+      const deletedTabIdsRef = useRef({});
       const [showFirebaseSettings, setShowFirebaseSettings] = useState(false);
       const [firebaseConfigState, setFirebaseConfigState] = useState(() => {
         try {
@@ -160,7 +166,7 @@
         setNotes(prevNotes => {
           const targetNoteCount = prevNotes.filter(note => note.tabId === targetTabId && note.id !== noteId).length;
           const cell = getGridCellPosition(targetNoteCount);
-          return prevNotes.map(note => note.id === noteId ? { ...note, ...cell, tabId: targetTabId, isEditing: false } : note);
+          return prevNotes.map(note => note.id === noteId ? { ...note, ...cell, tabId: targetTabId, isEditing: false, updatedAt: Date.now() } : note);
         });
         setActiveTabId(targetTabId);
       };
@@ -207,7 +213,7 @@
           gridRow: row
         };
         pushUndoSnapshot();
-        setNotes(prevNotes => prevNotes.map(note => note.id === noteId ? { ...note, ...cell, tabId: activeTabId, isEditing: false } : note));
+        setNotes(prevNotes => prevNotes.map(note => note.id === noteId ? { ...note, ...cell, tabId: activeTabId, isEditing: false, updatedAt: Date.now() } : note));
         setDraggedListNoteId(null);
       };
       const getPrintableTabs = () => {
@@ -216,8 +222,10 @@
       };
 
       const getSaveData = () => ({
-        notes: notes.map(({ memo, ...note }) => note),
-        tabs,
+        notes: notes.map(({ memo, ...note }) => ({ ...note, updatedAt: note.updatedAt || 0 })),
+        tabs: tabs.map(tab => ({ ...tab, updatedAt: tab.updatedAt || 0 })),
+        deletedNoteIds,
+        deletedTabIds,
         activeTabId,
         selectedTabIds: [...selectedTabIds],
         highestZIndex,
@@ -226,7 +234,8 @@
         rawData,
         selectedTitleCol,
         selectedRowIndices: [...selectedRowIndices],
-        updatedBy: clientIdRef.current
+        updatedBy: clientIdRef.current,
+        boardUpdatedAt: Date.now()
       });
 
       const parseFirebaseConfigText = (text) => {
@@ -282,6 +291,32 @@
         firebaseDbRef.current = null;
         setFirebaseConfigState(null);
         setFirebaseStatus('Firebase設定待ち');
+      };
+
+      const normalizeNote = (note) => ({ ...note, updatedAt: Number.isFinite(note.updatedAt) ? note.updatedAt : 0 });
+      const normalizeTab = (tab) => ({ ...tab, updatedAt: Number.isFinite(tab.updatedAt) ? tab.updatedAt : 0 });
+      const normalizeDeletedMap = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+      const mergeDeletedMaps = (localMap, remoteMap) => {
+        const merged = { ...normalizeDeletedMap(localMap) };
+        Object.entries(normalizeDeletedMap(remoteMap)).forEach(([id, deletedAt]) => {
+          if (!Number.isFinite(deletedAt)) return;
+          merged[id] = Math.max(merged[id] || 0, deletedAt);
+        });
+        return merged;
+      };
+      const mergeItemsByUpdatedAt = (localItems, remoteItems, deletedMap, normalizer) => {
+        const mergedMap = new Map();
+        [...(Array.isArray(localItems) ? localItems : []), ...(Array.isArray(remoteItems) ? remoteItems : [])].forEach(item => {
+          if (!item || !item.id) return;
+          const normalized = normalizer(item);
+          const deletedAt = normalizeDeletedMap(deletedMap)[normalized.id] || 0;
+          if (deletedAt && deletedAt >= (normalized.updatedAt || 0)) return;
+          const current = mergedMap.get(normalized.id);
+          if (!current || (normalized.updatedAt || 0) >= (current.updatedAt || 0)) {
+            mergedMap.set(normalized.id, normalized);
+          }
+        });
+        return Array.from(mergedMap.values());
       };
 
       const saveBoardData = (statusPrefix = '保存済み') => {
@@ -345,8 +380,12 @@
           }
 
           const saved = JSON.parse(savedText);
-          setNotes(Array.isArray(saved.notes) ? saved.notes.map(({ memo, ...note }) => note) : []);
-          setTabs(Array.isArray(saved.tabs) && saved.tabs.length > 0 ? saved.tabs : [{ id: 'tab-1', name: 'メインボード' }]);
+          const savedDeletedNoteIds = normalizeDeletedMap(saved.deletedNoteIds);
+          const savedDeletedTabIds = normalizeDeletedMap(saved.deletedTabIds);
+          setDeletedNoteIds(savedDeletedNoteIds);
+          setDeletedTabIds(savedDeletedTabIds);
+          setNotes(Array.isArray(saved.notes) ? saved.notes.map(({ memo, ...note }) => normalizeNote(note)).filter(note => !(savedDeletedNoteIds[note.id] && savedDeletedNoteIds[note.id] >= (note.updatedAt || 0))) : []);
+          setTabs(Array.isArray(saved.tabs) && saved.tabs.length > 0 ? saved.tabs.map(normalizeTab).filter(tab => !(savedDeletedTabIds[tab.id] && savedDeletedTabIds[tab.id] >= (tab.updatedAt || 0))) : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
           setActiveTabId(saved.activeTabId || 'tab-1');
           setSelectedTabIds(new Set(Array.isArray(saved.selectedTabIds) && saved.selectedTabIds.length > 0 ? saved.selectedTabIds : ['tab-1']));
           setHighestZIndex(Number.isFinite(saved.highestZIndex) ? saved.highestZIndex : 1);
@@ -361,6 +400,11 @@
           setSaveStatus('保存データの読み込みに失敗しました');
         }
       }, []);
+
+      useEffect(() => { notesRef.current = notes; }, [notes]);
+      useEffect(() => { tabsRef.current = tabs; }, [tabs]);
+      useEffect(() => { deletedNoteIdsRef.current = deletedNoteIds; }, [deletedNoteIds]);
+      useEffect(() => { deletedTabIdsRef.current = deletedTabIds; }, [deletedTabIds]);
 
       useEffect(() => {
         if (skipInitialSaveRef.current) {
@@ -377,7 +421,7 @@
         }, 600);
 
         return () => clearTimeout(timer);
-      }, [notes, tabs, activeTabId, selectedTabIds, highestZIndex, pastedText, columns, rawData, selectedTitleCol, selectedRowIndices]);
+      }, [notes, tabs, deletedNoteIds, deletedTabIds, activeTabId, selectedTabIds, highestZIndex, pastedText, columns, rawData, selectedTitleCol, selectedRowIndices]);
 
       useEffect(() => {
         if (!isFirebaseConfigured) {
@@ -407,18 +451,29 @@
             if (shared.updatedBy === clientIdRef.current) return;
 
             remoteUpdateRef.current = true;
-            setNotes(Array.isArray(shared.notes) ? shared.notes.map(({ memo, ...note }) => note) : []);
-            setTabs(Array.isArray(shared.tabs) && shared.tabs.length > 0 ? shared.tabs : [{ id: 'tab-1', name: 'メインボード' }]);
-            setActiveTabId(shared.activeTabId || 'tab-1');
-            setSelectedTabIds(new Set(Array.isArray(shared.selectedTabIds) && shared.selectedTabIds.length > 0 ? shared.selectedTabIds : ['tab-1']));
-            setHighestZIndex(Number.isFinite(shared.highestZIndex) ? shared.highestZIndex : 1);
-            setPastedText(shared.pastedText || '');
-            setColumns(Array.isArray(shared.columns) ? shared.columns : []);
-            setRawData(Array.isArray(shared.rawData) ? shared.rawData : []);
-            setSelectedTitleCol(shared.selectedTitleCol || '');
-            setSelectedRowIndices(new Set(Array.isArray(shared.selectedRowIndices) ? shared.selectedRowIndices : []));
-            setSaveStatus('共有データを受信しました');
-            setFirebaseStatus('共同編集中');
+            const mergedDeletedNoteIds = mergeDeletedMaps(deletedNoteIdsRef.current, shared.deletedNoteIds);
+            const mergedDeletedTabIds = mergeDeletedMaps(deletedTabIdsRef.current, shared.deletedTabIds);
+            const mergedNotes = mergeItemsByUpdatedAt(notesRef.current, shared.notes, mergedDeletedNoteIds, normalizeNote);
+            const mergedTabs = mergeItemsByUpdatedAt(tabsRef.current, shared.tabs, mergedDeletedTabIds, normalizeTab);
+            setDeletedNoteIds(mergedDeletedNoteIds);
+            setDeletedTabIds(mergedDeletedTabIds);
+            setNotes(mergedNotes);
+            setTabs(mergedTabs.length > 0 ? mergedTabs : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
+            setActiveTabId(prev => (mergedTabs.some(tab => tab.id === prev) ? prev : (mergedTabs[0]?.id || 'tab-1')));
+            setSelectedTabIds(prev => {
+              const availableIds = new Set((mergedTabs.length > 0 ? mergedTabs : [{ id: 'tab-1' }]).map(tab => tab.id));
+              const filtered = new Set([...prev].filter(id => availableIds.has(id)));
+              if (filtered.size === 0 && mergedTabs[0]) filtered.add(mergedTabs[0].id);
+              return filtered;
+            });
+            setHighestZIndex(prev => Math.max(Number.isFinite(shared.highestZIndex) ? shared.highestZIndex : 1, prev));
+            setPastedText(prev => shared.pastedText || prev);
+            setColumns(prev => Array.isArray(shared.columns) && shared.columns.length > 0 ? shared.columns : prev);
+            setRawData(prev => Array.isArray(shared.rawData) && shared.rawData.length > 0 ? shared.rawData : prev);
+            setSelectedTitleCol(prev => shared.selectedTitleCol || prev);
+            setSelectedRowIndices(prev => Array.isArray(shared.selectedRowIndices) && shared.selectedRowIndices.length > 0 ? new Set(shared.selectedRowIndices) : prev);
+            setSaveStatus('共有データをマージしました');
+            setFirebaseStatus('共同編集中・付箋単位で同期');
           }, error => {
             console.error('Firebaseの同期に失敗しました', error);
             setFirebaseStatus('Firebase同期エラー');
@@ -465,7 +520,7 @@
             text: row[selectedTitleCol] || '空のデータ',
             ...cell,
             zIndex: highestZIndex + i + 1,
-            color: colors[0], color2: null, isEditing: false, tabId: activeTabId
+            color: colors[0], color2: null, isEditing: false, tabId: activeTabId, updatedAt: Date.now()
           };
         });
         setHighestZIndex(prev => prev + newNotes.length);
@@ -483,7 +538,7 @@
           id: `note-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           text: '新しい付箋',
           ...cell,
-          zIndex: newZ, color: colors[0], color2: null, isEditing: true, tabId: activeTabId
+          zIndex: newZ, color: colors[0], color2: null, isEditing: true, tabId: activeTabId, updatedAt: Date.now()
         }]);
       };
 
@@ -503,7 +558,7 @@
         pushUndoSnapshot();
         const newZ = highestZIndex + 1;
         setHighestZIndex(newZ);
-        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
+        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ, updatedAt: Date.now() } : n));
         setDraggingId(id);
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
@@ -519,7 +574,7 @@
         pushUndoSnapshot();
         const newZ = highestZIndex + 1;
         setHighestZIndex(newZ);
-        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
+        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ, updatedAt: Date.now() } : n));
         setResizingId(id);
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
@@ -536,7 +591,7 @@
           const deltaX = clientX - resizeStartPos.x;
           const deltaY = clientY - resizeStartPos.y;
           setNotes(prevNotes => prevNotes.map(note => note.id === resizingId ? {
-            ...note, width: Math.max(120, resizeStartSize.width + deltaX), height: Math.max(80, resizeStartSize.height + deltaY)
+            ...note, width: Math.max(120, resizeStartSize.width + deltaX), height: Math.max(80, resizeStartSize.height + deltaY), updatedAt: Date.now()
           } : note));
           return;
         }
@@ -554,7 +609,7 @@
           }
           const boardRect = boardRef.current.getBoundingClientRect();
           setNotes(prevNotes => prevNotes.map(note => note.id === draggingId ? {
-            ...note, x: clientX - boardRect.left - offset.x, y: clientY - boardRect.top - offset.y
+            ...note, x: clientX - boardRect.left - offset.x, y: clientY - boardRect.top - offset.y, updatedAt: Date.now()
           } : note));
         }
       }, [draggingId, resizingId, offset, resizeStartSize, resizeStartPos, activeTabId]);
@@ -572,7 +627,8 @@
             width: Math.max(100, metrics.cellWidth - metrics.inset * 2),
             height: metrics.cellHeight - metrics.inset * 2,
             gridColumn: column,
-            gridRow: row
+            gridRow: row,
+            updatedAt: Date.now()
           };
         }));
       };
@@ -603,7 +659,7 @@
 
       const updateNote = (id, field, value) => {
         pushUndoSnapshot();
-        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, [field]: value } : n));
+        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, [field]: value, updatedAt: Date.now() } : n));
       };
       const commitNoteEdit = (id) => updateNote(id, 'isEditing', false);
       const getCaretOffsetFromEvent = (ev) => {
@@ -646,6 +702,7 @@
       };
       const deleteNote = (id) => {
         pushUndoSnapshot();
+        setDeletedNoteIds(prev => ({ ...prev, [id]: Date.now() }));
         setNotes(prevNotes => prevNotes.filter(n => n.id !== id));
         setSelectedNoteIds(prev => {
           const s = new Set(prev);
@@ -663,18 +720,24 @@
       const applyColorToSelectedNotes = (colorClass, slot = 'color') => {
         if (selectedNoteIds.size === 0) return;
         pushUndoSnapshot();
-        setNotes(prevNotes => prevNotes.map(note => selectedNoteIds.has(note.id) ? { ...note, [slot]: colorClass } : note));
+        setNotes(prevNotes => prevNotes.map(note => selectedNoteIds.has(note.id) ? { ...note, [slot]: colorClass, updatedAt: Date.now() } : note));
       };
       const clearSecondColorFromSelectedNotes = () => {
         if (selectedNoteIds.size === 0) return;
         pushUndoSnapshot();
-        setNotes(prevNotes => prevNotes.map(note => selectedNoteIds.has(note.id) ? { ...note, color2: null } : note));
+        setNotes(prevNotes => prevNotes.map(note => selectedNoteIds.has(note.id) ? { ...note, color2: null, updatedAt: Date.now() } : note));
       };
       const deleteSelectedNotes = () => {
         if (selectedNoteIds.size === 0) return;
         const ok = window.confirm(`選択した ${selectedNoteIds.size} 件の付箋を削除します。よろしいですか？`);
         if (!ok) return;
         pushUndoSnapshot();
+        const deletedAt = Date.now();
+        setDeletedNoteIds(prev => {
+          const next = { ...prev };
+          selectedNoteIds.forEach(id => { next[id] = deletedAt; });
+          return next;
+        });
         setNotes(prevNotes => prevNotes.filter(note => !selectedNoteIds.has(note.id)));
         clearSelectedNotes();
       };
@@ -684,7 +747,7 @@
       const addTab = () => {
         pushUndoSnapshot();
         const newTabId = `tab-${Date.now()}`;
-        const newTab = { id: newTabId, name: `タブ ${tabs.length + 1}` };
+        const newTab = { id: newTabId, name: `タブ ${tabs.length + 1}`, updatedAt: Date.now() };
         setTabs(prev => [...prev, newTab]); setActiveTabId(newTabId);
         setSelectedTabIds(prev => { const s = new Set(prev); s.add(newTabId); return s; });
       };
@@ -694,6 +757,13 @@
         const ok = window.confirm(`「${targetTab ? targetTab.name : 'このタブ'}」を削除します。このタブの付箋も削除されます。よろしいですか？`);
         if (!ok) return;
         pushUndoSnapshot();
+        const deletedAt = Date.now();
+        setDeletedTabIds(prev => ({ ...prev, [tabId]: deletedAt }));
+        setDeletedNoteIds(prev => {
+          const next = { ...prev };
+          notes.filter(note => note.tabId === tabId).forEach(note => { next[note.id] = deletedAt; });
+          return next;
+        });
         const remainingTabs = tabs.filter(tab => tab.id !== tabId);
         setTabs(remainingTabs); setNotes(prev => prev.filter(note => note.tabId !== tabId));
         setSelectedTabIds(prev => { const s = new Set([...prev].filter(id => id !== tabId)); if (s.size === 0 && remainingTabs[0]) s.add(remainingTabs[0].id); return s; });
@@ -770,6 +840,7 @@
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
                 e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。'),
+                e('li', null, 'Firebase同期は付箋・タブごとの更新時刻で新しい内容を採用し、削除情報も同期します。'),
                 e('li', null, 'Firebase設定画面にコンフィグファイルをドロップすると、Firestoreでデータ共有・共同編集できます。')
               )
             )
@@ -808,7 +879,7 @@
             showClearConfirm && e('div', { className: 'absolute inset-0 z-50 flex items-center justify-center bg-black/50' }, e('div', { className: 'bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4' },
               e('h3', { className: 'text-lg font-bold text-gray-900 mb-2' }, '付箋を削除'),
               e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
-              e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { pushUndoSnapshot(); setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
+              e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { pushUndoSnapshot(); const deletedAt = Date.now(); setDeletedNoteIds(prev => { const next = { ...prev }; notes.filter(n => n.tabId === activeTabId).forEach(n => { next[n.id] = deletedAt; }); return next; }); setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
             )),
             showFirebaseSettings && e('div', { className: 'absolute inset-0 z-50 flex items-center justify-center bg-black/50' },
               e('div', { className: 'bg-white p-6 rounded-lg shadow-xl max-w-lg w-full mx-4' },
