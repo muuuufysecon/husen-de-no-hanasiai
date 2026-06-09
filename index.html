@@ -405,6 +405,14 @@
       const boardRows = Math.max(INITIAL_GRID_ROWS, highestUsedRow + 1);
       const boardContentHeight = boardMetricsForRender.padding * 2 + boardRows * boardMetricsForRender.cellHeight;
       const gridCells = Array.from({ length: GRID_COLUMNS * boardRows });
+      const getNoteGridPositionForRender = (note) => {
+        const column = Math.min(GRID_COLUMNS - 1, Math.max(0, Number.isFinite(note.gridColumn) ? note.gridColumn : Math.round((note.x - boardMetricsForRender.padding) / boardMetricsForRender.cellWidth)));
+        const row = Math.max(0, Number.isFinite(note.gridRow) ? note.gridRow : Math.round((note.y - boardMetricsForRender.padding) / boardMetricsForRender.cellHeight));
+        return {
+          x: boardMetricsForRender.padding + column * boardMetricsForRender.cellWidth + NOTE_INSET,
+          y: boardMetricsForRender.padding + row * boardMetricsForRender.cellHeight + NOTE_INSET
+        };
+      };
       const e = React.createElement;
 
       return e('div', { className: 'flex h-screen w-full bg-gray-50 overflow-hidden font-sans text-gray-800' },
@@ -482,7 +490,7 @@
               e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
               e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
             )),
-            showAllNotesPanel && e('div', { className: 'absolute right-0 top-0 bottom-0 z-40 bg-white border-l border-gray-200 shadow-2xl flex flex-col', style: { width: `${SIDE_PANEL_WIDTH}px` } },
+            showAllNotesPanel && e('div', { className: 'absolute right-0 top-0 bottom-0 bg-white border-l border-gray-200 shadow-2xl flex flex-col', style: { width: `${SIDE_PANEL_WIDTH}px`, zIndex: 10000 } },
               e('div', { className: 'h-full flex flex-col overflow-hidden' },
                 e('div', { className: 'p-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3' },
                   e('div', null,
@@ -522,7 +530,8 @@
                 gridCells.map((_, index) => e('div', { key: index, className: 'border border-gray-300/80 bg-white/30' }))
               ),
               activeNotes.map(note => {
-                const noteStyle = { left: `${note.x}px`, top: `${note.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: note.zIndex, pointerEvents: draggingId === note.id ? 'none' : 'auto' };
+                const renderedCell = getNoteGridPositionForRender(note);
+                const noteStyle = { left: `${draggingId === note.id ? note.x : renderedCell.x}px`, top: `${draggingId === note.id ? note.y : renderedCell.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: Math.min(note.zIndex, 999), pointerEvents: draggingId === note.id ? 'none' : 'auto' };
                 return e('div', { key: note.id, className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', true); } },
                   e('div', { 'data-no-drag': 'true', className: 'flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg' }, e('div', { className: 'flex gap-1' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }, className: 'p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors', title: '編集' }, e(Icon, { name: 'edit-3', size: 14 })), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors', title: 'この付箋を削除' }, e(Icon, { name: 'trash-2', size: 14 })))),
                   e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' }, note.isEditing ? e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), className: 'w-full h-full bg-white/50 border border-black/20 rounded p-1 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...', autoFocus: true }) : e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: () => updateNote(note.id, 'isEditing', true) }, note.text)),
