@@ -83,6 +83,16 @@
       const clientIdRef = useRef(`client-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const [canUndo, setCanUndo] = useState(false);
       const [firebaseStatus, setFirebaseStatus] = useState('Firebase未設定');
+      const [showFirebaseSettings, setShowFirebaseSettings] = useState(false);
+      const [firebaseConfigState, setFirebaseConfigState] = useState(() => {
+        try {
+          const savedConfig = localStorage.getItem('fusen_firebase_config_v1');
+          return savedConfig ? JSON.parse(savedConfig) : null;
+        } catch (error) {
+          console.error('Firebase設定の読み込みに失敗しました', error);
+          return null;
+        }
+      });
 
       const colors = [
         'bg-yellow-200 border-yellow-300 text-yellow-900',
@@ -112,14 +122,8 @@
       const NOTE_INSET = 0;
       const SIDE_PANEL_WIDTH = 384;
       const FIREBASE_BOARD_ID = 'default-board';
-      const firebaseConfig = {
-        apiKey: '',
-        authDomain: '',
-        projectId: '',
-        storageBucket: '',
-        messagingSenderId: '',
-        appId: ''
-      };
+      const FIREBASE_CONFIG_STORAGE_KEY = 'fusen_firebase_config_v1';
+      const firebaseConfig = firebaseConfigState || {};
       const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
 
       const boardStyle = {
@@ -225,6 +229,61 @@
         updatedBy: clientIdRef.current
       });
 
+      const parseFirebaseConfigText = (text) => {
+        const trimmed = String(text || '').trim();
+        if (!trimmed) throw new Error('設定ファイルが空です');
+        try {
+          return JSON.parse(trimmed);
+        } catch (jsonError) {
+          const objectText = trimmed
+            .replace(/^export\s+default\s+/, '')
+            .replace(/^(const|let|var)\s+firebaseConfig\s*=\s*/, '')
+            .replace(/;$/, '');
+          return Function(`"use strict"; return (${objectText});`)();
+        }
+      };
+
+      const applyFirebaseConfig = (config) => {
+        if (!config || !config.apiKey || !config.projectId || !config.appId) {
+          window.alert('Firebase設定に apiKey / projectId / appId が含まれているか確認してください。');
+          setFirebaseStatus('Firebase設定エラー');
+          return;
+        }
+        localStorage.setItem(FIREBASE_CONFIG_STORAGE_KEY, JSON.stringify(config));
+        setFirebaseConfigState(config);
+        setFirebaseStatus('Firebase設定を読み込みました');
+      };
+
+      const handleFirebaseConfigFile = (file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const config = parseFirebaseConfigText(reader.result);
+            applyFirebaseConfig(config);
+            setShowFirebaseSettings(false);
+          } catch (error) {
+            console.error('Firebase設定ファイルの読み込みに失敗しました', error);
+            window.alert('Firebase設定ファイルを読み込めませんでした。JSON形式、または const firebaseConfig = {...}; 形式のファイルを指定してください。');
+            setFirebaseStatus('設定ファイル読込エラー');
+          }
+        };
+        reader.readAsText(file);
+      };
+
+      const handleFirebaseConfigDrop = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        handleFirebaseConfigFile(ev.dataTransfer.files && ev.dataTransfer.files[0]);
+      };
+
+      const clearFirebaseConfig = () => {
+        localStorage.removeItem(FIREBASE_CONFIG_STORAGE_KEY);
+        firebaseDbRef.current = null;
+        setFirebaseConfigState(null);
+        setFirebaseStatus('Firebase設定待ち');
+      };
+
       const saveBoardData = (statusPrefix = '保存済み') => {
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(getSaveData()));
@@ -322,6 +381,7 @@
 
       useEffect(() => {
         if (!isFirebaseConfigured) {
+          firebaseDbRef.current = null;
           setFirebaseStatus('Firebase設定待ち');
           return;
         }
@@ -369,7 +429,7 @@
           console.error('Firebaseの初期化に失敗しました', error);
           setFirebaseStatus('Firebase初期化エラー');
         }
-      }, []);
+      }, [firebaseConfigState]);
 
       const handlePaste = (e) => {
         const text = e.target.value;
@@ -710,7 +770,7 @@
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
                 e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。'),
-                e('li', null, 'コード内のfirebaseConfigを入力すると、Firestoreでデータ共有・共同編集できます。')
+                e('li', null, 'Firebase設定画面にコンフィグファイルをドロップすると、Firestoreでデータ共有・共同編集できます。')
               )
             )
           )
@@ -730,6 +790,7 @@
                 e('button', { onClick: () => saveBoardData('保存済み'), className: 'px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'save', size: 16 }), '保存'),
                 e('span', { className: 'text-xs text-gray-500 min-w-[120px]' }, saveStatus),
                 e('span', { className: 'text-xs text-blue-600 min-w-[120px]' }, firebaseStatus),
+                e('button', { onClick: () => setShowFirebaseSettings(true), className: 'px-3 py-2 bg-cyan-50 text-cyan-700 hover:bg-cyan-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'settings', size: 16 }), 'Firebase設定'),
                 e('button', { onClick: exportToPdf, className: 'px-3 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'message-square', size: 16 }), 'PDF化'),
                 e('button', { onClick: () => setShowClearConfirm(true), className: 'p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors', title: '現在のタブの付箋をすべてクリア' }, e(Icon, { name: 'trash-2', size: 20 }))
               )
@@ -749,6 +810,40 @@
               e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
               e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { pushUndoSnapshot(); setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
             )),
+            showFirebaseSettings && e('div', { className: 'absolute inset-0 z-50 flex items-center justify-center bg-black/50' },
+              e('div', { className: 'bg-white p-6 rounded-lg shadow-xl max-w-lg w-full mx-4' },
+                e('div', { className: 'flex items-start justify-between gap-4 mb-4' },
+                  e('div', null,
+                    e('h3', { className: 'text-lg font-bold text-gray-900' }, 'Firebase設定'),
+                    e('p', { className: 'text-sm text-gray-500 mt-1' }, 'Firebaseのコンフィグファイルをドロップして読み込みます。')
+                  ),
+                  e('button', { onClick: () => setShowFirebaseSettings(false), className: 'text-gray-400 hover:text-gray-700 text-xl leading-none' }, '×')
+                ),
+                e('div', {
+                  onDragOver: ev => ev.preventDefault(),
+                  onDrop: handleFirebaseConfigDrop,
+                  className: 'border-2 border-dashed border-cyan-300 rounded-lg bg-cyan-50/60 p-8 text-center mb-4'
+                },
+                  e(Icon, { name: 'upload-cloud', size: 32, className: 'mx-auto mb-3 text-cyan-600' }),
+                  e('p', { className: 'text-sm font-medium text-gray-800 mb-1' }, 'ここに firebase-config.json / firebase-config.js をドロップ'),
+                  e('p', { className: 'text-xs text-gray-500 mb-4' }, 'JSON形式、または const firebaseConfig = {...}; 形式に対応しています。'),
+                  e('label', { className: 'inline-flex items-center gap-2 px-4 py-2 rounded-md bg-cyan-600 text-white text-sm font-medium hover:bg-cyan-700 cursor-pointer' },
+                    e(Icon, { name: 'file-up', size: 16 }),
+                    'ファイルを選択',
+                    e('input', { type: 'file', accept: '.json,.js,.txt', className: 'hidden', onChange: ev => handleFirebaseConfigFile(ev.target.files && ev.target.files[0]) })
+                  )
+                ),
+                e('div', { className: 'text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-md p-3 mb-4' },
+                  e('p', { className: 'font-medium text-gray-700 mb-1' }, '現在の状態'),
+                  e('p', null, firebaseConfig.projectId ? `Project ID: ${firebaseConfig.projectId}` : 'Firebase設定はまだ読み込まれていません。'),
+                  e('p', null, `状態: ${firebaseStatus}`)
+                ),
+                e('div', { className: 'flex justify-end gap-3' },
+                  e('button', { onClick: clearFirebaseConfig, className: 'px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200' }, '設定を削除'),
+                  e('button', { onClick: () => setShowFirebaseSettings(false), className: 'px-4 py-2 text-sm font-medium rounded-md bg-gray-800 text-white hover:bg-gray-700' }, '閉じる')
+                )
+              )
+            ),
             showAllNotesPanel && e('div', { 'data-all-notes-panel': 'true', className: 'absolute right-0 top-0 bottom-0 bg-white border-l border-gray-200 shadow-2xl flex flex-col', style: { width: `${SIDE_PANEL_WIDTH}px`, zIndex: 10000 } },
               e('div', { className: 'h-full flex flex-col overflow-hidden' },
                 e('div', { className: 'p-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3' },
