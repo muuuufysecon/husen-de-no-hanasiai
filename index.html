@@ -734,6 +734,17 @@
           return { ...note, tags: currentTags, updatedAt: Date.now() };
         }));
       };
+      const addExistingTagToNote = (id, tag) => {
+        const cleanTag = String(tag || '').trim();
+        if (!cleanTag) return;
+        pushUndoSnapshot();
+        setNotes(prevNotes => prevNotes.map(note => {
+          if (note.id !== id) return note;
+          const currentTags = Array.isArray(note.tags) ? note.tags.map(t => String(t || '').trim()).filter(Boolean) : [];
+          if (currentTags.includes(cleanTag) || currentTags.length >= 30) return { ...note, isEditing: true, updatedAt: Date.now() };
+          return { ...note, tags: [...currentTags, cleanTag], isEditing: true, updatedAt: Date.now() };
+        }));
+      };
       const commitNoteEdit = (id) => {
         setNotes(prevNotes => prevNotes.map(note => {
           if (note.id !== id) return note;
@@ -876,6 +887,7 @@
       const overviewTabs = selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
       const overviewGridStyle = { display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(overviewTabs.length, 1), 3)}, minmax(0, 1fr))` };
       const getTabName = (tabId) => (tabs.find(tab => tab.id === tabId) || {}).name || '不明なタブ';
+      const allAvailableTags = Array.from(new Set(notes.flatMap(note => Array.isArray(note.tags) ? note.tags.map(tag => String(tag || '').trim()).filter(Boolean) : []))).sort((a, b) => a.localeCompare(b, 'ja'));
       const renderMiniNote = (note) => React.createElement('div', { key: note.id, draggable: true, onDragStart: ev => handleNoteDragStart(ev, note.id), onDragEnd: () => setDraggedListNoteId(null), className: `rounded-md border p-2 text-xs shadow-sm break-words cursor-grab active:cursor-grabbing ${note.color}`, title: 'ドラッグして別のタブへ移動' },
         renderTagChips(note.tags, true),
         e('div', { className: 'mt-1' }, note.text || '（空）')
@@ -942,7 +954,8 @@
                 e('li', null, '「付箋一覧」はタブごとに表示を切り替えられます。'),
                 e('li', null, 'サイドパネルの付箋は、ボード上へドラッグして現在のタブに配置できます。'),
                 e('li', null, '「付箋一覧」や「選択タブを一覧表示」では、付箋をつかんで別のタブへ移動できます。'),
-                e('li', null, '付箋にカーソルを重ねると、左上に選択チェックとタグ追加ボタンが表示されます。「+ タグ」を押すたびに新しいタグ欄を追加できます。'),
+                e('li', null, 'タグ追加では、新しいタグ入力のほか、これまでに作ったタグも選択できます。'),
+                e('li', null, '付箋にカーソルを重ねると、左上に選択チェックとタグ追加ボタンが表示されます。選択すると削除ボタンも表示されます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
                 e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。'),
@@ -1072,19 +1085,27 @@
                 const noteStyle = { left: `${draggingId === note.id ? note.x : renderedCell.x}px`, top: `${draggingId === note.id ? note.y : renderedCell.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: Math.min(note.zIndex, 999), pointerEvents: draggingId === note.id ? 'none' : 'auto', ...getNoteBackgroundStyle(note) };
                 return e('div', { key: note.id, 'data-board-note': 'true', className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg cursor-grab active:cursor-grabbing touch-none ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); } },
                   !note.isEditing && renderTopRightTags(note.tags),
-                  !note.isEditing && e('div', { 'data-no-drag': 'true', className: `flex justify-start items-start p-1.5 transition-opacity absolute top-0 left-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg pointer-events-none ${selectedNoteIds.has(note.id) ? 'opacity-100' : 'opacity-0 hover:opacity-100'}` }, e('div', { className: 'flex gap-1 pointer-events-auto' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); toggleNoteSelection(note.id); }, className: `w-5 h-5 rounded border flex items-center justify-center text-[11px] font-bold transition-colors ${selectedNoteIds.has(note.id) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white/80 border-black/20 text-transparent hover:text-blue-600'}`, title: 'この付箋を選択' }, '✓'), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addEmptyTagToNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-white/85 border border-black/10 text-[10px] font-medium text-gray-700 hover:bg-white hover:text-blue-700 shadow-sm transition-colors', title: '新しいタグ欄を追加' }, '+ タグ'))),
+                  !note.isEditing && e('div', { 'data-no-drag': 'true', className: `flex justify-start items-start p-1.5 transition-opacity absolute top-0 left-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg pointer-events-none ${selectedNoteIds.has(note.id) ? 'opacity-100' : 'opacity-0 hover:opacity-100'}` }, e('div', { className: 'flex gap-1 pointer-events-auto' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); toggleNoteSelection(note.id); }, className: `w-5 h-5 rounded border flex items-center justify-center text-[11px] font-bold transition-colors ${selectedNoteIds.has(note.id) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white/80 border-black/20 text-transparent hover:text-blue-600'}`, title: 'この付箋を選択' }, '✓'), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addEmptyTagToNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-white/85 border border-black/10 text-[10px] font-medium text-gray-700 hover:bg-white hover:text-blue-700 shadow-sm transition-colors', title: '新しいタグ欄を追加' }, '+ タグ'), selectedNoteIds.has(note.id) && e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-red-600 text-white border border-red-700 text-[10px] font-bold hover:bg-red-700 shadow-sm transition-colors', title: '選択した付箋を削除' }, '削除'))),
                   e('div', { className: 'p-3 pt-6 flex-1 flex flex-col gap-1 overflow-hidden' },
                     note.isEditing ? e(React.Fragment, null,
                       e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'text'), className: 'w-full flex-1 min-h-0 bg-white/50 border border-black/20 rounded p-2 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...' }),
-                      e('div', { 'data-no-drag': 'true', className: 'flex flex-wrap gap-1 rounded bg-white/50 border border-black/10 p-1 max-h-14 overflow-y-auto' },
-                        (Array.isArray(note.tags) && note.tags.length > 0 ? note.tags : ['']).map((tag, tagIndex) =>
-                          e('div', { key: tagIndex, className: 'flex items-center gap-1 bg-white/80 border border-black/10 rounded-full px-1.5 py-0.5' },
-                            e('span', { className: 'text-[10px] text-gray-500' }, '#'),
-                            e('input', { 'data-no-drag': 'true', type: 'text', value: tag, onChange: ev => updateTagAtIndex(note.id, tagIndex, ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter' && !ev.isComposing && !(ev.nativeEvent && ev.nativeEvent.isComposing)) { ev.preventDefault(); commitNoteEdit(note.id); } }, className: 'w-20 bg-transparent text-xs focus:outline-none', placeholder: 'タグ名' }),
-                            e('button', { 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); removeTagAtIndex(note.id, tagIndex); }, className: 'text-[10px] text-gray-400 hover:text-red-600', title: 'このタグを削除' }, '×')
-                          )
+                      e(React.Fragment, null,
+                        e('div', { 'data-no-drag': 'true', className: 'flex flex-wrap gap-1 rounded bg-white/50 border border-black/10 p-1 max-h-14 overflow-y-auto' },
+                          (Array.isArray(note.tags) && note.tags.length > 0 ? note.tags : ['']).map((tag, tagIndex) =>
+                            e('div', { key: tagIndex, className: 'flex items-center gap-1 bg-white/80 border border-black/10 rounded-full px-1.5 py-0.5' },
+                              e('span', { className: 'text-[10px] text-gray-500' }, '#'),
+                              e('input', { 'data-no-drag': 'true', type: 'text', value: tag, onChange: ev => updateTagAtIndex(note.id, tagIndex, ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter' && !ev.isComposing && !(ev.nativeEvent && ev.nativeEvent.isComposing)) { ev.preventDefault(); commitNoteEdit(note.id); } }, className: 'w-20 bg-transparent text-xs focus:outline-none', placeholder: 'タグ名' }),
+                              e('button', { 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); removeTagAtIndex(note.id, tagIndex); }, className: 'text-[10px] text-gray-400 hover:text-red-600', title: 'このタグを削除' }, '×')
+                            )
+                          ),
+                          e('button', { 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addEmptyTagToNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-[10px] font-medium hover:bg-blue-100', title: '新しいタグ欄を追加' }, '+ タグ')
                         ),
-                        e('button', { 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addEmptyTagToNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-[10px] font-medium hover:bg-blue-100', title: '新しいタグ欄を追加' }, '+ タグ')
+                        allAvailableTags.filter(tag => !(Array.isArray(note.tags) ? note.tags.map(t => String(t || '').trim()).filter(Boolean).includes(tag) : false)).length > 0 && e('div', { 'data-no-drag': 'true', className: 'flex flex-wrap gap-1 rounded bg-white/40 border border-black/10 p-1 max-h-12 overflow-y-auto' },
+                          e('span', { className: 'text-[10px] text-gray-500 px-1 py-0.5' }, '既存タグ:'),
+                          allAvailableTags.filter(tag => !(Array.isArray(note.tags) ? note.tags.map(t => String(t || '').trim()).filter(Boolean).includes(tag) : false)).map(tag =>
+                            e('button', { key: tag, 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addExistingTagToNote(note.id, tag); }, className: 'px-2 py-0.5 rounded-full bg-white/85 border border-black/10 text-[10px] text-gray-700 hover:bg-blue-50 hover:text-blue-700', title: 'このタグを追加' }, `#${tag}`)
+                          )
+                        )
                       )
                     ) : e(React.Fragment, null,
                       e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center pt-4', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
