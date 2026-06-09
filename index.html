@@ -164,7 +164,7 @@
       };
 
       const getSaveData = () => ({
-        notes,
+        notes: notes.map(({ memo, ...note }) => note),
         tabs,
         activeTabId,
         selectedTabIds: [...selectedTabIds],
@@ -196,7 +196,7 @@
           }
 
           const saved = JSON.parse(savedText);
-          setNotes(Array.isArray(saved.notes) ? saved.notes : []);
+          setNotes(Array.isArray(saved.notes) ? saved.notes.map(({ memo, ...note }) => note) : []);
           setTabs(Array.isArray(saved.tabs) && saved.tabs.length > 0 ? saved.tabs : [{ id: 'tab-1', name: 'メインボード' }]);
           setActiveTabId(saved.activeTabId || 'tab-1');
           setSelectedTabIds(new Set(Array.isArray(saved.selectedTabIds) && saved.selectedTabIds.length > 0 ? saved.selectedTabIds : ['tab-1']));
@@ -257,7 +257,6 @@
           return {
             id: `note-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
             text: row[selectedTitleCol] || '空のデータ',
-            memo: '',
             ...cell,
             zIndex: highestZIndex + i + 1,
             color: colors[0], color2: null, isEditing: false, tabId: activeTabId
@@ -276,7 +275,6 @@
         setNotes(prev => [...prev, {
           id: `note-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           text: '新しい付箋',
-          memo: '',
           ...cell,
           zIndex: newZ, color: colors[0], color2: null, isEditing: true, tabId: activeTabId
         }]);
@@ -541,10 +539,9 @@
               e('p', { className: 'text-xs text-gray-500 mb-3' }, '操作ヒント:'),
               e('ul', { className: 'text-xs text-gray-600 space-y-2 list-disc pl-4' },
                 e('li', null, '付箋はマスと同じ大きさで表示されます。ドラッグ＆ドロップで移動できます。'),
-                e('li', null, 'ダブルクリックまたは鉛筆アイコンで上半分の内容を編集できます。'),
-                e('li', null, 'メモは編集時に入力でき、記入済みのときだけ下半分に表示されます。'),
+                e('li', null, 'ダブルクリックまたは鉛筆アイコンで付箋の内容を編集できます。'),
                 e('li', null, '2色目は付箋下部の細い帯として表示されます。'),
-                e('li', null, '本文・メモはEnterで編集完了、Shift+Enterで改行できます。'),
+                e('li', null, '本文はEnterで編集完了、Shift+Enterで改行できます。'),
                 e('li', null, '「付箋一覧」や「選択タブを一覧表示」では、付箋をつかんで別のタブへ移動できます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
@@ -616,8 +613,7 @@
                         e('span', { className: 'text-xs font-medium text-gray-500 bg-gray-100 rounded px-2 py-0.5' }, getTabName(note.tabId)),
                         e('span', { className: 'text-xs text-gray-400' }, `行 ${((note.gridRow ?? 0) + 1)}・列 ${((note.gridColumn ?? 0) + 1)}`)
                       ),
-                      e('div', { className: 'text-sm text-gray-800 whitespace-pre-wrap break-words' }, note.text || '（空）'),
-                      note.memo && e('div', { className: 'text-xs text-gray-500 whitespace-pre-wrap break-words mt-1 border-t border-gray-100 pt-1' }, `メモ：${note.memo}`)
+                      e('div', { className: 'text-sm text-gray-800 whitespace-pre-wrap break-words' }, note.text || '（空）')
                     )
                   )))
                 )
@@ -633,15 +629,8 @@
                 const noteStyle = { left: `${draggingId === note.id ? note.x : renderedCell.x}px`, top: `${draggingId === note.id ? note.y : renderedCell.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: Math.min(note.zIndex, 999), pointerEvents: draggingId === note.id ? 'none' : 'auto', ...getNoteBackgroundStyle(note) };
                 return e('div', { key: note.id, className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); } },
                   e('div', { 'data-no-drag': 'true', className: 'flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg' }, e('div', { className: 'flex gap-1' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }, className: 'p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors', title: '編集' }, e(Icon, { name: 'edit-3', size: 14 })), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors', title: 'この付箋を削除' }, e(Icon, { name: 'trash-2', size: 14 })))),
-                  note.isEditing || (note.memo && note.memo.trim()) ? e('div', { className: 'p-2 pt-6 flex-1 flex flex-col gap-2 overflow-hidden' },
-                    e('div', { className: 'flex-1 min-h-0 flex items-center justify-center border-b border-black/10 pb-2 overflow-hidden' },
-                      note.isEditing ? e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'text'), className: 'w-full h-full bg-white/50 border border-black/20 rounded p-1 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...' }) : e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
-                    ),
-                    e('div', { 'data-no-drag': 'true', className: 'flex-1 min-h-0' },
-                      note.isEditing ? e('textarea', { value: note.memo || '', onChange: ev => updateNote(note.id, 'memo', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'memo'), className: 'w-full h-full bg-white/35 border border-black/10 rounded p-2 text-xs leading-relaxed focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: 'メモ...' }) : e('div', { className: 'w-full h-full bg-white/25 border border-black/10 rounded p-2 text-xs leading-relaxed whitespace-pre-wrap break-words overflow-y-auto' }, note.memo)
-                    )
-                  ) : e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' },
-                    e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
+                  e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' },
+                    note.isEditing ? e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'text'), className: 'w-full h-full bg-white/50 border border-black/20 rounded p-2 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...' }) : e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
                   ),
                   e('div', { 'data-no-drag': 'true', className: 'absolute left-1 right-1 bottom-1 p-1 flex flex-col gap-1 justify-center rounded-md bg-white/65 border border-black/10 opacity-0 hover:opacity-100 transition-opacity' },
                     e('div', { className: 'flex gap-1 justify-center items-center' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色1'), colors.map((colorClass, idx) => e('button', { key: `p-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '1色目を変更' }))),
