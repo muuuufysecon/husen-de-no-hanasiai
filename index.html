@@ -63,6 +63,7 @@
       const [sidebarOpen, setSidebarOpen] = useState(true);
       const [showClearConfirm, setShowClearConfirm] = useState(false);
       const [overviewMode, setOverviewMode] = useState(false);
+      const [splitViewMode, setSplitViewMode] = useState(false);
       const [showAllNotesPanel, setShowAllNotesPanel] = useState(false);
       const [selectedNoteIds, setSelectedNoteIds] = useState(new Set());
       const [saveStatus, setSaveStatus] = useState('未保存');
@@ -543,7 +544,7 @@
       };
 
       const addNoteAtBoardPosition = (ev) => {
-        if (!boardRef.current || overviewMode || notes.some(note => note.isEditing)) return;
+        if (!boardRef.current || overviewMode || splitViewMode || notes.some(note => note.isEditing)) return;
         if (ev.target.closest('[data-all-notes-panel="true"]') || ev.target.closest('[data-note-edit-modal="true"]') || ev.target.closest('[data-board-note="true"]') || ev.target.closest('button') || ev.target.closest('textarea') || ev.target.closest('input')) return;
         const boardRect = boardRef.current.getBoundingClientRect();
         const metrics = getBoardMetrics();
@@ -885,6 +886,7 @@
 
       const selectedTabs = tabs.filter(tab => selectedTabIds.has(tab.id));
       const overviewTabs = selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
+      const splitTabs = (selectedTabs.length >= 2 ? selectedTabs : [tabs.find(tab => tab.id === activeTabId), ...tabs.filter(tab => tab.id !== activeTabId)].filter(Boolean)).slice(0, 2);
       const overviewGridStyle = { display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(overviewTabs.length, 1), 3)}, minmax(0, 1fr))` };
       const getTabName = (tabId) => (tabs.find(tab => tab.id === tabId) || {}).name || '不明なタブ';
       const allAvailableTags = Array.from(new Set(notes.flatMap(note => Array.isArray(note.tags) ? note.tags.map(tag => String(tag || '').trim()).filter(Boolean) : []))).sort((a, b) => a.localeCompare(b, 'ja'));
@@ -928,6 +930,40 @@
         };
       };
       const e = React.createElement;
+      const renderSplitTabBoard = (tab) => {
+        const tabNotes = notes.filter(note => note.tabId === tab.id);
+        const maxRow = tabNotes.reduce((maxRow, note) => Math.max(maxRow, Number.isFinite(note.gridRow) ? note.gridRow : Math.round(((note.y || BOARD_PADDING) - BOARD_PADDING) / CELL_HEIGHT)), 0);
+        const rows = Math.max(INITIAL_GRID_ROWS, maxRow + 1);
+        const cells = Array.from({ length: GRID_COLUMNS * rows });
+        return e('div', { key: tab.id, onDragOver: allowNoteDrop, onDrop: ev => handleTabDrop(ev, tab.id), className: `bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col overflow-hidden min-w-0 transition-colors ${draggedListNoteId ? 'ring-2 ring-blue-200 bg-blue-50/30' : ''}` },
+          e('div', { className: 'px-3 py-2 border-b border-gray-200 bg-white flex items-center justify-between gap-2' },
+            e('div', { className: 'min-w-0' },
+              e('h2', { className: 'font-bold text-gray-800 truncate' }, tab.name),
+              e('p', { className: 'text-xs text-gray-500 mt-0.5' }, `${tabNotes.length} 件・ここに付箋をドロップできます`)
+            ),
+            e('button', { onClick: () => setActiveTabId(tab.id), className: 'px-2 py-1 rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-medium shrink-0' }, 'このタブを開く')
+          ),
+          e('div', { className: 'flex-1 overflow-auto bg-gray-100 p-3' },
+            e('div', { className: 'grid', style: { gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(72px, 1fr))`, gridAutoRows: '96px' } },
+              cells.map((_, index) => {
+                const column = index % GRID_COLUMNS;
+                const row = Math.floor(index / GRID_COLUMNS);
+                const cellNotes = tabNotes.filter(note => {
+                  const noteColumn = Math.min(GRID_COLUMNS - 1, Math.max(0, Number.isFinite(note.gridColumn) ? note.gridColumn : Math.round(((note.x || BOARD_PADDING) - BOARD_PADDING) / Math.max(120, boardMetricsForRender.cellWidth))));
+                  const noteRow = Math.max(0, Number.isFinite(note.gridRow) ? note.gridRow : Math.round(((note.y || BOARD_PADDING) - BOARD_PADDING) / CELL_HEIGHT));
+                  return noteColumn === column && noteRow === row;
+                });
+                return e('div', { key: index, className: 'border border-gray-300/80 bg-white/35 p-1 overflow-hidden' },
+                  cellNotes.map(note => e('div', { key: note.id, draggable: true, onDragStart: ev => handleNoteDragStart(ev, note.id), onDragEnd: () => setDraggedListNoteId(null), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); }, className: `relative rounded-md border shadow-sm p-2 mb-1 min-h-[76px] text-xs cursor-grab active:cursor-grabbing overflow-hidden ${note.color}`, style: getNoteBackgroundStyle(note), title: 'ダブルクリックで編集・ドラッグして別タブへ移動' },
+                    renderTagChips(note.tags, true),
+                    e('div', { className: 'mt-1 whitespace-pre-wrap break-words line-clamp-4' }, note.text || '（空）')
+                  ))
+                );
+              })
+            )
+          )
+        );
+      };
 
       return e('div', { className: 'flex h-screen w-full bg-gray-50 overflow-hidden font-sans text-gray-800' },
         e('div', { className: `no-print bg-white shadow-xl flex flex-col transition-all duration-300 ease-in-out z-20 ${sidebarOpen ? 'w-80 border-r border-gray-200' : 'w-0 overflow-hidden'}` },
@@ -969,6 +1005,7 @@
                 e('li', null, '本文はEnterで編集完了、Shift+Enterで改行できます。'),
                 e('li', null, '「付箋一覧」はタブごとに表示を切り替えられます。'),
                 e('li', null, 'サイドパネルの付箋は、ボード上へドラッグして現在のタブに配置できます。'),
+                e('li', null, '「2画面表示」では、チェックしたタブのうち先頭2つを左右に並べて表示できます。チェックが1つ以下の場合は、現在のタブと次のタブを表示します。'),
                 e('li', null, '「付箋一覧」や「選択タブを一覧表示」では、付箋をつかんで別のタブへ移動できます。'),
                 e('li', null, 'タグ追加では、新しいタグ入力のほか、これまでに作ったタグも選択できます。'),
                 e('li', null, '付箋にカーソルを重ねると、左上に選択チェックとタグ追加ボタンが表示されます。選択すると削除ボタンも表示されます。'),
@@ -991,7 +1028,8 @@
               e('div', { className: 'flex items-center gap-2 flex-wrap' },
                 e('button', { onClick: addBlankNote, className: 'px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'plus', size: 16 }), '新しい付箋'),
                 e('button', { onClick: () => setShowAllNotesPanel(!showAllNotesPanel), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${showAllNotesPanel ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}` }, e(Icon, { name: 'list-checks', size: 16 }), showAllNotesPanel ? '付箋一覧を閉じる' : `付箋一覧 ${notes.length}件`),
-                e('button', { onClick: () => setOverviewMode(!overviewMode), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${overviewMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}` }, e(Icon, { name: 'maximize-2', size: 16 }), overviewMode ? '通常表示' : '選択タブを一覧表示'),
+                e('button', { onClick: () => { const next = !overviewMode; setOverviewMode(next); if (next) setSplitViewMode(false); }, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${overviewMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}` }, e(Icon, { name: 'maximize-2', size: 16 }), overviewMode ? '通常表示' : '選択タブを一覧表示'),
+                e('button', { onClick: () => { const next = !splitViewMode; setSplitViewMode(next); if (next) setOverviewMode(false); }, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${splitViewMode ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}` }, e(Icon, { name: 'columns-2', size: 16 }), splitViewMode ? '2画面を閉じる' : '2画面表示'),
                 e('button', { onClick: undoLastAction, disabled: !canUndo, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${canUndo ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}` }, e(Icon, { name: 'undo-2', size: 16 }), '一つ戻る'),
                 e('button', { onClick: () => saveBoardData('保存済み'), className: 'px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'save', size: 16 }), '保存'),
                 e('span', { className: 'text-xs text-gray-500 min-w-[120px]' }, saveStatus),
@@ -1091,7 +1129,12 @@
                 )
               )
             ),
-            overviewMode ? e('div', { className: 'absolute inset-0 p-4 overflow-auto bg-gray-100' }, e('div', { className: 'gap-4 h-full', style: overviewGridStyle }, overviewTabs.map(tab => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('div', { key: tab.id, onDragOver: allowNoteDrop, onDrop: ev => handleTabDrop(ev, tab.id), className: `bg-white rounded-lg border border-gray-200 shadow-sm p-3 min-h-[260px] overflow-auto transition-colors ${draggedListNoteId ? 'ring-2 ring-blue-200 bg-blue-50/30' : ''}` }, e('div', { className: 'flex items-center justify-between mb-3 border-b border-gray-100 pb-2' }, e('h2', { className: 'font-bold text-gray-800' }, tab.name), e('span', { className: 'text-xs text-gray-500' }, `${tabNotes.length} 件`)), tabNotes.length === 0 ? e('div', { className: 'text-sm text-gray-400 text-center py-10' }, 'ここにドロップできます') : e('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-2' }, tabNotes.map(renderMiniNote))); }))) : e(React.Fragment, null,
+            splitViewMode ? e('div', { className: 'absolute inset-0 p-4 overflow-auto bg-gray-100' },
+              e('div', { className: 'grid grid-cols-1 xl:grid-cols-2 gap-4 h-full min-h-[560px]' },
+                splitTabs.map(renderSplitTabBoard),
+                splitTabs.length < 2 && e('div', { className: 'bg-white rounded-lg border border-dashed border-gray-300 shadow-sm flex items-center justify-center text-gray-400 text-sm' }, '2画面表示には、タブをもう1つ追加してください')
+              )
+            ) : overviewMode ? e('div', { className: 'absolute inset-0 p-4 overflow-auto bg-gray-100' }, e('div', { className: 'gap-4 h-full', style: overviewGridStyle }, overviewTabs.map(tab => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('div', { key: tab.id, onDragOver: allowNoteDrop, onDrop: ev => handleTabDrop(ev, tab.id), className: `bg-white rounded-lg border border-gray-200 shadow-sm p-3 min-h-[260px] overflow-auto transition-colors ${draggedListNoteId ? 'ring-2 ring-blue-200 bg-blue-50/30' : ''}` }, e('div', { className: 'flex items-center justify-between mb-3 border-b border-gray-100 pb-2' }, e('h2', { className: 'font-bold text-gray-800' }, tab.name), e('span', { className: 'text-xs text-gray-500' }, `${tabNotes.length} 件`)), tabNotes.length === 0 ? e('div', { className: 'text-sm text-gray-400 text-center py-10' }, 'ここにドロップできます') : e('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-2' }, tabNotes.map(renderMiniNote))); }))) : e(React.Fragment, null,
               e('div', { className: 'pointer-events-none', style: { height: `${boardContentHeight}px` } }),
               e('div', { className: 'absolute left-0 top-0 grid pointer-events-none p-4', style: { width: showAllNotesPanel ? `calc(100% - ${SIDE_PANEL_WIDTH}px)` : '100%', height: `${boardContentHeight}px`, gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${boardRows}, ${CELL_HEIGHT}px)` } },
                 gridCells.map((_, index) => e('div', { key: index, className: 'border border-gray-300/80 bg-white/30' }))
