@@ -75,6 +75,8 @@
       const [resizeStartPos, setResizeStartPos] = useState({ x: 0, y: 0 });
       const [draggedListNoteId, setDraggedListNoteId] = useState(null);
       const [allNotesPanelTabId, setAllNotesPanelTabId] = useState('all');
+      const undoHistoryRef = useRef([]);
+      const [canUndo, setCanUndo] = useState(false);
 
       const colors = [
         'bg-yellow-200 border-yellow-300 text-yellow-900',
@@ -134,6 +136,7 @@
       };
       const moveNoteToTab = (noteId, targetTabId) => {
         if (!noteId || !targetTabId || !tabs.some(tab => tab.id === targetTabId)) return;
+        pushUndoSnapshot();
         setNotes(prevNotes => {
           const targetNoteCount = prevNotes.filter(note => note.tabId === targetTabId && note.id !== noteId).length;
           const cell = getGridCellPosition(targetNoteCount);
@@ -183,6 +186,7 @@
           gridColumn: column,
           gridRow: row
         };
+        pushUndoSnapshot();
         setNotes(prevNotes => prevNotes.map(note => note.id === noteId ? { ...note, ...cell, tabId: activeTabId, isEditing: false } : note));
         setDraggedListNoteId(null);
       };
@@ -213,6 +217,36 @@
           console.error('保存に失敗しました', error);
           setSaveStatus('保存に失敗しました');
         }
+      };
+
+      const createUndoSnapshot = () => ({
+        notes: notes.map(note => ({ ...note })),
+        tabs: tabs.map(tab => ({ ...tab })),
+        activeTabId,
+        selectedTabIds: [...selectedTabIds],
+        selectedNoteIds: [...selectedNoteIds],
+        highestZIndex
+      });
+
+      const pushUndoSnapshot = () => {
+        undoHistoryRef.current = [...undoHistoryRef.current.slice(-49), createUndoSnapshot()];
+        setCanUndo(true);
+      };
+
+      const undoLastAction = () => {
+        const snapshot = undoHistoryRef.current.pop();
+        if (!snapshot) return;
+        setNotes(snapshot.notes);
+        setTabs(snapshot.tabs);
+        setActiveTabId(snapshot.activeTabId);
+        setSelectedTabIds(new Set(snapshot.selectedTabIds));
+        setSelectedNoteIds(new Set(snapshot.selectedNoteIds));
+        setHighestZIndex(snapshot.highestZIndex);
+        setDraggingId(null);
+        setResizingId(null);
+        setDraggedListNoteId(null);
+        setCanUndo(undoHistoryRef.current.length > 0);
+        setSaveStatus('一つ戻しました');
       };
 
       useEffect(() => {
@@ -277,6 +311,7 @@
 
       const generateNotes = () => {
         if (!selectedTitleCol) return;
+        pushUndoSnapshot();
         const metrics = getBoardMetrics();
         const activeNoteCount = notes.filter(note => note.tabId === activeTabId).length;
         const targetRows = rawData.filter((_, i) => selectedRowIndices.has(i));
@@ -296,6 +331,7 @@
       };
 
       const addBlankNote = () => {
+        pushUndoSnapshot();
         const newZ = highestZIndex + 1;
         const activeNoteCount = notes.filter(note => note.tabId === activeTabId).length;
         const cell = getGridCellPosition(activeNoteCount);
@@ -317,10 +353,11 @@
         }
 
         const tagName = e.target.tagName.toLowerCase();
-        if (tagName === 'textarea' || tagName === 'input' || tagName === 'button' || e.target.closest('button') || e.target.closest('[data-no-drag="true"]') || e.target.closest('.resize-handle')) return;
+        if (tagName === 'textarea' || tagName === 'input' || tagName === 'button' || e.target.closest('button') || e.target.closest('.resize-handle')) return;
         if (e.type === 'touchstart' && !e.target.closest('.scrollable-area')) e.preventDefault();
         const note = notes.find(n => n.id === id);
         if (!note || !boardRef.current) return;
+        pushUndoSnapshot();
         const newZ = highestZIndex + 1;
         setHighestZIndex(newZ);
         setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
@@ -336,6 +373,7 @@
         if (e.type === 'touchstart') e.preventDefault();
         const note = notes.find(n => n.id === id);
         if (!note) return;
+        pushUndoSnapshot();
         const newZ = highestZIndex + 1;
         setHighestZIndex(newZ);
         setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
@@ -420,7 +458,10 @@
         };
       }, [draggingId, resizingId, handlePointerMove]);
 
-      const updateNote = (id, field, value) => setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, [field]: value } : n));
+      const updateNote = (id, field, value) => {
+        pushUndoSnapshot();
+        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, [field]: value } : n));
+      };
       const commitNoteEdit = (id) => updateNote(id, 'isEditing', false);
       const getCaretOffsetFromEvent = (ev) => {
         if (!ev) return null;
@@ -461,6 +502,7 @@
         }
       };
       const deleteNote = (id) => {
+        pushUndoSnapshot();
         setNotes(prevNotes => prevNotes.filter(n => n.id !== id));
         setSelectedNoteIds(prev => {
           const s = new Set(prev);
@@ -476,15 +518,20 @@
       const selectAllNotes = () => setSelectedNoteIds(new Set(notes.map(note => note.id)));
       const clearSelectedNotes = () => setSelectedNoteIds(new Set());
       const applyColorToSelectedNotes = (colorClass, slot = 'color') => {
+        if (selectedNoteIds.size === 0) return;
+        pushUndoSnapshot();
         setNotes(prevNotes => prevNotes.map(note => selectedNoteIds.has(note.id) ? { ...note, [slot]: colorClass } : note));
       };
       const clearSecondColorFromSelectedNotes = () => {
+        if (selectedNoteIds.size === 0) return;
+        pushUndoSnapshot();
         setNotes(prevNotes => prevNotes.map(note => selectedNoteIds.has(note.id) ? { ...note, color2: null } : note));
       };
       const deleteSelectedNotes = () => {
         if (selectedNoteIds.size === 0) return;
         const ok = window.confirm(`選択した ${selectedNoteIds.size} 件の付箋を削除します。よろしいですか？`);
         if (!ok) return;
+        pushUndoSnapshot();
         setNotes(prevNotes => prevNotes.filter(note => !selectedNoteIds.has(note.id)));
         clearSelectedNotes();
       };
@@ -492,6 +539,7 @@
       const toggleAllRows = () => setSelectedRowIndices(selectedRowIndices.size === rawData.length ? new Set() : new Set(rawData.map((_, i) => i)));
       const toggleTabSelection = (e, tabId) => { e.stopPropagation(); setSelectedTabIds(prev => { const s = new Set(prev); s.has(tabId) ? s.delete(tabId) : s.add(tabId); return s; }); };
       const addTab = () => {
+        pushUndoSnapshot();
         const newTabId = `tab-${Date.now()}`;
         const newTab = { id: newTabId, name: `タブ ${tabs.length + 1}` };
         setTabs(prev => [...prev, newTab]); setActiveTabId(newTabId);
@@ -502,6 +550,7 @@
         const targetTab = tabs.find(tab => tab.id === tabId);
         const ok = window.confirm(`「${targetTab ? targetTab.name : 'このタブ'}」を削除します。このタブの付箋も削除されます。よろしいですか？`);
         if (!ok) return;
+        pushUndoSnapshot();
         const remainingTabs = tabs.filter(tab => tab.id !== tabId);
         setTabs(remainingTabs); setNotes(prev => prev.filter(note => note.tabId !== tabId));
         setSelectedTabIds(prev => { const s = new Set([...prev].filter(id => id !== tabId)); if (s.size === 0 && remainingTabs[0]) s.add(remainingTabs[0].id); return s; });
@@ -593,6 +642,7 @@
                 e('button', { onClick: addBlankNote, className: 'px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'plus', size: 16 }), '新しい付箋'),
                 e('button', { onClick: () => setShowAllNotesPanel(!showAllNotesPanel), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${showAllNotesPanel ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}` }, e(Icon, { name: 'list-checks', size: 16 }), showAllNotesPanel ? '付箋一覧を閉じる' : `付箋一覧 ${notes.length}件`),
                 e('button', { onClick: () => setOverviewMode(!overviewMode), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${overviewMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}` }, e(Icon, { name: 'maximize-2', size: 16 }), overviewMode ? '通常表示' : '選択タブを一覧表示'),
+                e('button', { onClick: undoLastAction, disabled: !canUndo, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${canUndo ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}` }, e(Icon, { name: 'undo-2', size: 16 }), '一つ戻る'),
                 e('button', { onClick: () => saveBoardData('保存済み'), className: 'px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'save', size: 16 }), '保存'),
                 e('span', { className: 'text-xs text-gray-500 min-w-[120px]' }, saveStatus),
                 e('button', { onClick: exportToPdf, className: 'px-3 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'message-square', size: 16 }), 'PDF化'),
@@ -612,7 +662,7 @@
             showClearConfirm && e('div', { className: 'absolute inset-0 z-50 flex items-center justify-center bg-black/50' }, e('div', { className: 'bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4' },
               e('h3', { className: 'text-lg font-bold text-gray-900 mb-2' }, '付箋を削除'),
               e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
-              e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
+              e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { pushUndoSnapshot(); setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
             )),
             showAllNotesPanel && e('div', { 'data-all-notes-panel': 'true', className: 'absolute right-0 top-0 bottom-0 bg-white border-l border-gray-200 shadow-2xl flex flex-col', style: { width: `${SIDE_PANEL_WIDTH}px`, zIndex: 10000 } },
               e('div', { className: 'h-full flex flex-col overflow-hidden' },
@@ -662,14 +712,14 @@
               activeNotes.map(note => {
                 const renderedCell = getNoteGridPositionForRender(note);
                 const noteStyle = { left: `${draggingId === note.id ? note.x : renderedCell.x}px`, top: `${draggingId === note.id ? note.y : renderedCell.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: Math.min(note.zIndex, 999), pointerEvents: draggingId === note.id ? 'none' : 'auto', ...getNoteBackgroundStyle(note) };
-                return e('div', { key: note.id, className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); } },
-                  e('div', { 'data-no-drag': 'true', className: 'flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg' }, e('div', { className: 'flex gap-1' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }, className: 'p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors', title: '編集' }, e(Icon, { name: 'edit-3', size: 14 })), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors', title: 'この付箋を削除' }, e(Icon, { name: 'trash-2', size: 14 })))),
+                return e('div', { key: note.id, className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg cursor-grab active:cursor-grabbing touch-none ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); } },
+                  e('div', { 'data-no-drag': 'true', className: 'flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg pointer-events-none' }, e('div', { className: 'flex gap-1 pointer-events-auto' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }, className: 'p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors', title: '編集' }, e(Icon, { name: 'edit-3', size: 14 })), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors', title: 'この付箋を削除' }, e(Icon, { name: 'trash-2', size: 14 })))),
                   e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' },
                     note.isEditing ? e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'text'), className: 'w-full h-full bg-white/50 border border-black/20 rounded p-2 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...' }) : e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
                   ),
-                  e('div', { 'data-no-drag': 'true', className: 'absolute left-1 right-1 bottom-1 p-1 flex flex-col gap-1 justify-center rounded-md bg-white/65 border border-black/10 opacity-0 hover:opacity-100 transition-opacity' },
-                    e('div', { className: 'flex gap-1 justify-center items-center' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色1'), colors.map((colorClass, idx) => e('button', { key: `p-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '1色目を変更' }))),
-                    e('div', { className: 'flex gap-1 justify-center items-center' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色2'), colors.map((colorClass, idx) => e('button', { key: `s-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '2色目を変更' })), note.color2 && e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', null); }, className: 'text-[10px] px-1 rounded bg-white/60 border border-black/10 text-black/60', title: '2色目を削除' }, 'なし'))
+                  e('div', { 'data-no-drag': 'true', className: 'absolute left-1 right-1 bottom-1 p-1 flex flex-col gap-1 justify-center rounded-md bg-white/65 border border-black/10 opacity-0 hover:opacity-100 transition-opacity pointer-events-none' },
+                    e('div', { className: 'flex gap-1 justify-center items-center pointer-events-auto' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色1'), colors.map((colorClass, idx) => e('button', { key: `p-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '1色目を変更' }))),
+                    e('div', { className: 'flex gap-1 justify-center items-center pointer-events-auto' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色2'), colors.map((colorClass, idx) => e('button', { key: `s-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '2色目を変更' })), note.color2 && e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', null); }, className: 'text-[10px] px-1 rounded bg-white/60 border border-black/10 text-black/60', title: '2色目を削除' }, 'なし'))
                   ),
                   note.isEditing && e('div', { 'data-no-drag': 'true', className: 'absolute -bottom-10 left-0 w-full flex justify-center' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); commitNoteEdit(note.id); }, className: 'bg-gray-800 text-white text-xs px-3 py-1.5 rounded-full shadow-lg hover:bg-gray-700' }, '編集を完了')),
                   e('div', { className: 'resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-end justify-end p-1 opacity-50 hover:opacity-100', onMouseDown: ev => handleResizeDown(ev, note.id), onTouchStart: ev => handleResizeDown(ev, note.id) }, e('svg', { width: '8', height: '8', viewBox: '0 0 10 10', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' }, e('path', { d: 'M10 0V10H0L10 0Z', fill: 'currentColor', className: 'text-black/50' })))
