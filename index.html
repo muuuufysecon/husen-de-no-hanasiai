@@ -728,13 +728,14 @@
       const focusEditingTextarea = (el, id, field) => {
         if (!el) return;
         const target = editingCursorRef.current;
+        if (!target || target.id !== id || target.field !== field) return;
         setTimeout(() => {
           el.focus();
-          if (target && target.id === id && target.field === field && Number.isFinite(target.offset)) {
+          if (Number.isFinite(target.offset)) {
             const pos = Math.min(target.offset, el.value.length);
             el.setSelectionRange(pos, pos);
-            editingCursorRef.current = null;
           }
+          editingCursorRef.current = null;
         }, 0);
       };
       const startEditingNote = (id, field = 'text', ev = null) => {
