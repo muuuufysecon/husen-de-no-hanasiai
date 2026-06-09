@@ -789,6 +789,27 @@
         setNotes(prevNotes => prevNotes.filter(note => !selectedNoteIds.has(note.id)));
         clearSelectedNotes();
       };
+      useEffect(() => {
+        const handleSelectedNoteDeleteKey = (ev) => {
+          const tagName = ev.target && ev.target.tagName ? ev.target.tagName.toLowerCase() : '';
+          if (tagName === 'textarea' || tagName === 'input' || tagName === 'select' || ev.target?.isContentEditable) return;
+          if ((ev.key === 'Delete' || ev.key === 'Backspace') && selectedNoteIds.size > 0) {
+            ev.preventDefault();
+            pushUndoSnapshot();
+            const deletedAt = Date.now();
+            setDeletedNoteIds(prev => {
+              const next = { ...prev };
+              selectedNoteIds.forEach(id => { next[id] = deletedAt; });
+              return next;
+            });
+            setNotes(prevNotes => prevNotes.filter(note => !selectedNoteIds.has(note.id)));
+            clearSelectedNotes();
+            setSaveStatus('選択した付箋を削除しました');
+          }
+        };
+        window.addEventListener('keydown', handleSelectedNoteDeleteKey);
+        return () => window.removeEventListener('keydown', handleSelectedNoteDeleteKey);
+      }, [selectedNoteIds, notes, tabs, activeTabId, selectedTabIds, highestZIndex]);
       const toggleRowSelection = (index) => setSelectedRowIndices(prev => { const s = new Set(prev); s.has(index) ? s.delete(index) : s.add(index); return s; });
       const toggleAllRows = () => setSelectedRowIndices(selectedRowIndices.size === rawData.length ? new Set() : new Set(rawData.map((_, i) => i)));
       const toggleTabSelection = (e, tabId) => { e.stopPropagation(); setSelectedTabIds(prev => { const s = new Set(prev); s.has(tabId) ? s.delete(tabId) : s.add(tabId); return s; }); };
