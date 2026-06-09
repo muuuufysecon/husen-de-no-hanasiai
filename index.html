@@ -8,6 +8,8 @@
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
   <style>
     html, body, #root { height: 100%; margin: 0; }
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -76,7 +78,11 @@
       const [draggedListNoteId, setDraggedListNoteId] = useState(null);
       const [allNotesPanelTabId, setAllNotesPanelTabId] = useState('all');
       const undoHistoryRef = useRef([]);
+      const firebaseDbRef = useRef(null);
+      const remoteUpdateRef = useRef(false);
+      const clientIdRef = useRef(`client-${Date.now()}-${Math.random().toString(36).slice(2)}`);
       const [canUndo, setCanUndo] = useState(false);
+      const [firebaseStatus, setFirebaseStatus] = useState('Firebase未設定');
 
       const colors = [
         'bg-yellow-200 border-yellow-300 text-yellow-900',
@@ -105,6 +111,16 @@
       const BOARD_PADDING = 16;
       const NOTE_INSET = 0;
       const SIDE_PANEL_WIDTH = 384;
+      const FIREBASE_BOARD_ID = 'default-board';
+      const firebaseConfig = {
+        apiKey: '',
+        authDomain: '',
+        projectId: '',
+        storageBucket: '',
+        messagingSenderId: '',
+        appId: ''
+      };
+      const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
 
       const boardStyle = {
         backgroundColor: '#f3f4f6'
@@ -205,7 +221,8 @@
         columns,
         rawData,
         selectedTitleCol,
-        selectedRowIndices: [...selectedRowIndices]
+        selectedRowIndices: [...selectedRowIndices],
+        updatedBy: clientIdRef.current
       });
 
       const saveBoardData = (statusPrefix = '保存済み') => {
@@ -213,6 +230,17 @@
           localStorage.setItem(STORAGE_KEY, JSON.stringify(getSaveData()));
           const time = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
           setSaveStatus(`${statusPrefix} ${time}`);
+          if (isFirebaseConfigured && firebaseDbRef.current && !remoteUpdateRef.current) {
+            firebaseDbRef.current.collection('boards').doc(FIREBASE_BOARD_ID).set({
+              ...getSaveData(),
+              updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).then(() => {
+              setFirebaseStatus(`共有済み ${time}`);
+            }).catch(error => {
+              console.error('Firebaseへの保存に失敗しました', error);
+              setFirebaseStatus('Firebase保存エラー');
+            });
+          }
         } catch (error) {
           console.error('保存に失敗しました', error);
           setSaveStatus('保存に失敗しました');
@@ -280,6 +308,10 @@
           skipInitialSaveRef.current = false;
           return;
         }
+        if (remoteUpdateRef.current) {
+          remoteUpdateRef.current = false;
+          return;
+        }
 
         const timer = setTimeout(() => {
           saveBoardData('自動保存済み');
@@ -287,6 +319,57 @@
 
         return () => clearTimeout(timer);
       }, [notes, tabs, activeTabId, selectedTabIds, highestZIndex, pastedText, columns, rawData, selectedTitleCol, selectedRowIndices]);
+
+      useEffect(() => {
+        if (!isFirebaseConfigured) {
+          setFirebaseStatus('Firebase設定待ち');
+          return;
+        }
+        if (!window.firebase || !window.firebase.firestore) {
+          setFirebaseStatus('Firebase SDK読込エラー');
+          return;
+        }
+
+        try {
+          if (!window.firebase.apps.length) window.firebase.initializeApp(firebaseConfig);
+          const db = window.firebase.firestore();
+          firebaseDbRef.current = db;
+          const boardDoc = db.collection('boards').doc(FIREBASE_BOARD_ID);
+          setFirebaseStatus('Firebase接続中');
+
+          const unsubscribe = boardDoc.onSnapshot(snapshot => {
+            if (!snapshot.exists) {
+              setFirebaseStatus('共有ボード作成待ち');
+              return;
+            }
+
+            const shared = snapshot.data() || {};
+            if (shared.updatedBy === clientIdRef.current) return;
+
+            remoteUpdateRef.current = true;
+            setNotes(Array.isArray(shared.notes) ? shared.notes.map(({ memo, ...note }) => note) : []);
+            setTabs(Array.isArray(shared.tabs) && shared.tabs.length > 0 ? shared.tabs : [{ id: 'tab-1', name: 'メインボード' }]);
+            setActiveTabId(shared.activeTabId || 'tab-1');
+            setSelectedTabIds(new Set(Array.isArray(shared.selectedTabIds) && shared.selectedTabIds.length > 0 ? shared.selectedTabIds : ['tab-1']));
+            setHighestZIndex(Number.isFinite(shared.highestZIndex) ? shared.highestZIndex : 1);
+            setPastedText(shared.pastedText || '');
+            setColumns(Array.isArray(shared.columns) ? shared.columns : []);
+            setRawData(Array.isArray(shared.rawData) ? shared.rawData : []);
+            setSelectedTitleCol(shared.selectedTitleCol || '');
+            setSelectedRowIndices(new Set(Array.isArray(shared.selectedRowIndices) ? shared.selectedRowIndices : []));
+            setSaveStatus('共有データを受信しました');
+            setFirebaseStatus('共同編集中');
+          }, error => {
+            console.error('Firebaseの同期に失敗しました', error);
+            setFirebaseStatus('Firebase同期エラー');
+          });
+
+          return () => unsubscribe();
+        } catch (error) {
+          console.error('Firebaseの初期化に失敗しました', error);
+          setFirebaseStatus('Firebase初期化エラー');
+        }
+      }, []);
 
       const handlePaste = (e) => {
         const text = e.target.value;
@@ -626,7 +709,8 @@
                 e('li', null, '「付箋一覧」や「選択タブを一覧表示」では、付箋をつかんで別のタブへ移動できます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
-                e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。')
+                e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。'),
+                e('li', null, 'コード内のfirebaseConfigを入力すると、Firestoreでデータ共有・共同編集できます。')
               )
             )
           )
@@ -645,6 +729,7 @@
                 e('button', { onClick: undoLastAction, disabled: !canUndo, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${canUndo ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}` }, e(Icon, { name: 'undo-2', size: 16 }), '一つ戻る'),
                 e('button', { onClick: () => saveBoardData('保存済み'), className: 'px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'save', size: 16 }), '保存'),
                 e('span', { className: 'text-xs text-gray-500 min-w-[120px]' }, saveStatus),
+                e('span', { className: 'text-xs text-blue-600 min-w-[120px]' }, firebaseStatus),
                 e('button', { onClick: exportToPdf, className: 'px-3 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'message-square', size: 16 }), 'PDF化'),
                 e('button', { onClick: () => setShowClearConfirm(true), className: 'p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors', title: '現在のタブの付箋をすべてクリア' }, e(Icon, { name: 'trash-2', size: 20 }))
               )
