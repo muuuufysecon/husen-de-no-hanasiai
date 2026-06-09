@@ -92,7 +92,7 @@
       };
       const getColorHex = (colorClass) => colorHexMap[colorClass] || '#fef08a';
       const getNoteBackgroundStyle = (note) => note.color2 ? {
-        background: `linear-gradient(135deg, ${getColorHex(note.color)} 0%, ${getColorHex(note.color)} 50%, ${getColorHex(note.color2)} 50%, ${getColorHex(note.color2)} 100%)`
+        background: `linear-gradient(to bottom, ${getColorHex(note.color)} 0%, ${getColorHex(note.color)} calc(100% - 12px), ${getColorHex(note.color2)} calc(100% - 12px), ${getColorHex(note.color2)} 100%)`
       } : {};
       const STORAGE_KEY = 'fusen_discussion_board_data_v1';
       const GRID_COLUMNS = 8;
@@ -515,7 +515,7 @@
                 e('li', null, '付箋はマスと同じ大きさで表示されます。ドラッグ＆ドロップで移動できます。'),
                 e('li', null, 'ダブルクリックまたは鉛筆アイコンで上半分の内容を編集できます。'),
                 e('li', null, 'メモは編集時に入力でき、記入済みのときだけ下半分に表示されます。'),
-                e('li', null, '右下のカラーパレットで色を2色まで選べます。'),
+                e('li', null, '2色目は付箋下部の細い帯として表示されます。'),
                 e('li', null, '本文・メモはEnterで編集完了、Shift+Enterで改行できます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
@@ -614,7 +614,7 @@
                   ) : e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' },
                     e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
                   ),
-                  e('div', { 'data-no-drag': 'true', className: 'p-2 flex flex-col gap-1 justify-center border-t border-black/5 opacity-0 hover:opacity-100 transition-opacity mt-auto shrink-0' },
+                  e('div', { 'data-no-drag': 'true', className: 'absolute left-1 right-1 bottom-1 p-1 flex flex-col gap-1 justify-center rounded-md bg-white/65 border border-black/10 opacity-0 hover:opacity-100 transition-opacity' },
                     e('div', { className: 'flex gap-1 justify-center items-center' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色1'), colors.map((colorClass, idx) => e('button', { key: `p-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '1色目を変更' }))),
                     e('div', { className: 'flex gap-1 justify-center items-center' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色2'), colors.map((colorClass, idx) => e('button', { key: `s-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '2色目を変更' })), note.color2 && e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', null); }, className: 'text-[10px] px-1 rounded bg-white/60 border border-black/10 text-black/60', title: '2色目を削除' }, 'なし'))
                   ),
