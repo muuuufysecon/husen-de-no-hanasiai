@@ -116,6 +116,8 @@
       const [boardName, setBoardName] = useState('メインボード');
       const [boardOpened, setBoardOpened] = useState(false);
       const [newBoardName, setNewBoardName] = useState('');
+      const [showManualManage, setShowManualManage] = useState(false);
+      const [manualImportText, setManualImportText] = useState('');
 
       const colors = [
         'bg-yellow-200 border-yellow-300 text-yellow-900',
@@ -510,6 +512,152 @@
           return nextBoards;
         });
         if (currentBoardId === boardId) setBoardOpened(false);
+      };
+
+      const exportCurrentBoardJson = () => {
+        if (!boardOpened) return;
+        const now = Date.now();
+        const exportData = { ...getSaveData(), boardUpdatedAt: now, exportedAt: now, exportType: 'fusen-board-data-v1' };
+        const safeName = String(boardName || 'board').replace(/[\\/:*?"<>|]/g, '-').slice(0, 40);
+        const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${safeName || 'board'}-${new Date(now).toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setSaveStatus('ボードを書き出しました');
+      };
+
+      const importBoardDataObject = (data, options = {}) => {
+        if (!data || typeof data !== 'object') {
+          window.alert('ボードデータを読み込めませんでした。');
+          return;
+        }
+        const name = options.asNewBoard ? `${data.boardName || boardName || '読み込みボード'} コピー` : (data.boardName || boardName || '読み込みボード');
+        if (options.asNewBoard) {
+          const boardId = `board-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+          const importedData = { ...data, boardId, boardName: name, boardUpdatedAt: Date.now() };
+          const boardMeta = {
+            id: boardId,
+            name,
+            updatedAt: importedData.boardUpdatedAt,
+            noteCount: Array.isArray(importedData.notes) ? importedData.notes.length : 0,
+            tabCount: Array.isArray(importedData.tabs) ? importedData.tabs.length : 1
+          };
+          localStorage.setItem(getBoardStorageKey(boardId), JSON.stringify(importedData));
+          setBoardList(prevBoards => {
+            const nextBoards = [boardMeta, ...prevBoards].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+            localStorage.setItem(BOARD_LIST_STORAGE_KEY, JSON.stringify(nextBoards));
+            return nextBoards;
+          });
+          setCurrentBoardId(boardId);
+          setBoardName(name);
+          applyLoadedBoardData(importedData);
+          setBoardOpened(true);
+          skipInitialSaveRef.current = true;
+        } else {
+          pushUndoSnapshot();
+          setBoardName(name);
+          applyLoadedBoardData({ ...data, boardName: name });
+        }
+        setManualImportText('');
+        setShowManualManage(false);
+        setSaveStatus(options.asNewBoard ? '別ボードとして読み込みました' : 'ボードを読み込みました');
+      };
+
+      const importBoardJsonText = (text, options = {}) => {
+        try {
+          const data = JSON.parse(String(text || '').trim());
+          importBoardDataObject(data, options);
+        } catch (error) {
+          console.error('ボードデータの読み込みに失敗しました', error);
+          window.alert('JSON形式のボードデータを読み込めませんでした。');
+        }
+      };
+
+      const handleBoardImportFile = (file, options = {}) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => importBoardJsonText(reader.result, options);
+        reader.readAsText(file);
+      };
+
+      const copyCurrentBoardJson = async () => {
+        if (!boardOpened) return;
+        const text = JSON.stringify({ ...getSaveData(), exportedAt: Date.now(), exportType: 'fusen-board-data-v1' }, null, 2);
+        try {
+          await navigator.clipboard.writeText(text);
+          setSaveStatus('ボードJSONをコピーしました');
+        } catch (error) {
+          console.error('クリップボードへのコピーに失敗しました', error);
+          setManualImportText(text);
+          window.alert('自動コピーできなかったため、テキスト欄にJSONを表示しました。');
+        }
+      };
+
+      const copyCurrentBoardId = async () => {
+        try {
+          await navigator.clipboard.writeText(currentBoardId || DEFAULT_FIREBASE_BOARD_ID);
+          setSaveStatus('ボードIDをコピーしました');
+        } catch (error) {
+          window.alert(`ボードID: ${currentBoardId || DEFAULT_FIREBASE_BOARD_ID}`);
+        }
+      };
+
+      const manualPushToFirebase = () => {
+        if (!isFirebaseConfigured || !firebaseDbRef.current) {
+          window.alert('Firebase設定を読み込んでから実行してください。');
+          return;
+        }
+        const now = Date.now();
+        const saveData = { ...getSaveData(), boardUpdatedAt: now };
+        firebaseDbRef.current.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID).set({
+          ...saveData,
+          updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true }).then(() => {
+          setFirebaseStatus('手動アップロード完了');
+          setSaveStatus('Firebaseへ手動保存しました');
+        }).catch(error => {
+          console.error('Firebase手動アップロードに失敗しました', error);
+          setFirebaseStatus('手動アップロード失敗');
+          window.alert('Firebaseへの手動保存に失敗しました。Firestoreのルールや設定を確認してください。');
+        });
+      };
+
+      const manualPullFromFirebase = () => {
+        if (!isFirebaseConfigured || !firebaseDbRef.current) {
+          window.alert('Firebase設定を読み込んでから実行してください。');
+          return;
+        }
+        firebaseDbRef.current.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID).get().then(snapshot => {
+          if (!snapshot.exists) {
+            window.alert('Firebase上にこのボードのデータがまだありません。');
+            setFirebaseStatus('共有ボード未作成');
+            return;
+          }
+          const shared = snapshot.data() || {};
+          const ok = window.confirm('Firebase上のデータを読み込みます。現在の画面の内容とマージしますか？');
+          if (!ok) return;
+          remoteUpdateRef.current = true;
+          const mergedDeletedNoteIds = mergeDeletedMaps(deletedNoteIdsRef.current, shared.deletedNoteIds);
+          const mergedDeletedTabIds = mergeDeletedMaps(deletedTabIdsRef.current, shared.deletedTabIds);
+          const mergedNotes = mergeItemsByUpdatedAt(notesRef.current, shared.notes, mergedDeletedNoteIds, normalizeNote);
+          const mergedTabs = mergeItemsByUpdatedAt(tabsRef.current, shared.tabs, mergedDeletedTabIds, normalizeTab);
+          setDeletedNoteIds(mergedDeletedNoteIds);
+          setDeletedTabIds(mergedDeletedTabIds);
+          setNotes(mergedNotes);
+          setTabs(mergedTabs.length > 0 ? mergedTabs : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
+          setBoardName(shared.boardName || boardName);
+          setSaveStatus('Firebaseから手動取得しました');
+          setFirebaseStatus('手動取得完了');
+        }).catch(error => {
+          console.error('Firebase手動取得に失敗しました', error);
+          setFirebaseStatus('手動取得失敗');
+          window.alert('Firebaseからの手動取得に失敗しました。Firestoreのルールや設定を確認してください。');
+        });
       };
 
       useEffect(() => {
@@ -1247,6 +1395,7 @@
                 e('button', { onClick: () => { const next = !splitViewMode; setSplitViewMode(next); if (next) setOverviewMode(false); }, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${splitViewMode ? 'bg-indigo-600 text-white hover:bg-indigo-700' : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}` }, e(Icon, { name: 'columns-3', size: 16 }), splitViewMode ? '分割を閉じる' : '画面分割'),
                 e('button', { onClick: undoLastAction, disabled: !canUndo, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${canUndo ? 'bg-gray-100 text-gray-700 hover:bg-gray-200' : 'bg-gray-50 text-gray-300 cursor-not-allowed'}` }, e(Icon, { name: 'undo-2', size: 16 }), '一つ戻る'),
                 e('button', { onClick: () => saveBoardData('保存済み'), className: 'px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'save', size: 16 }), '保存'),
+                e('button', { onClick: () => setShowManualManage(true), className: 'px-3 py-2 bg-orange-50 text-orange-700 hover:bg-orange-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'folder-sync', size: 16 }), '手動管理'),
                 e('span', { className: 'text-xs text-gray-500 min-w-[120px]' }, saveStatus),
                 e('span', { className: 'text-xs text-blue-600 min-w-[120px]' }, firebaseStatus),
                 e('button', { onClick: () => setShowFirebaseSettings(true), className: 'px-3 py-2 bg-cyan-50 text-cyan-700 hover:bg-cyan-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'settings', size: 16 }), 'Firebase設定'),
@@ -1300,6 +1449,55 @@
                 e('div', { className: 'flex justify-end gap-3' },
                   e('button', { onClick: clearFirebaseConfig, className: 'px-4 py-2 text-sm font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200' }, '設定を削除'),
                   e('button', { onClick: () => setShowFirebaseSettings(false), className: 'px-4 py-2 text-sm font-medium rounded-md bg-gray-800 text-white hover:bg-gray-700' }, '閉じる')
+                )
+              )
+            ),
+            showManualManage && e('div', { className: 'absolute inset-0 z-50 flex items-center justify-center bg-black/50' },
+              e('div', { className: 'bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full mx-4 max-h-[86vh] overflow-y-auto' },
+                e('div', { className: 'flex items-start justify-between gap-4 mb-4' },
+                  e('div', null,
+                    e('h3', { className: 'text-lg font-bold text-gray-900' }, 'ボードの手動管理'),
+                    e('p', { className: 'text-sm text-gray-500 mt-1' }, 'Firebase共有がうまくいかない時は、JSONファイルで書き出し・読み込みできます。')
+                  ),
+                  e('button', { onClick: () => setShowManualManage(false), className: 'text-gray-400 hover:text-gray-700 text-xl leading-none' }, '×')
+                ),
+                e('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-4 mb-4' },
+                  e('div', { className: 'rounded-xl border border-amber-100 bg-amber-50/70 p-4' },
+                    e('h4', { className: 'font-bold text-amber-900 mb-2' }, 'ファイルで管理'),
+                    e('p', { className: 'text-xs text-amber-800 mb-3' }, 'ボードをJSONファイルとして保存し、別端末ではそのファイルを読み込めます。'),
+                    e('button', { onClick: exportCurrentBoardJson, className: 'w-full px-3 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 text-sm font-bold mb-2 flex items-center justify-center gap-2' }, e(Icon, { name: 'download', size: 15 }), 'JSONを書き出し'),
+                    e('label', { className: 'w-full px-3 py-2 rounded-lg bg-white border border-amber-200 text-amber-800 hover:bg-amber-100 text-sm font-bold cursor-pointer flex items-center justify-center gap-2' },
+                      e(Icon, { name: 'upload', size: 15 }),
+                      'JSONファイルを読み込み',
+                      e('input', { type: 'file', accept: '.json,.txt', className: 'hidden', onChange: ev => handleBoardImportFile(ev.target.files && ev.target.files[0], { asNewBoard: true }) })
+                    )
+                  ),
+                  e('div', { className: 'rounded-xl border border-blue-100 bg-blue-50/70 p-4' },
+                    e('h4', { className: 'font-bold text-blue-900 mb-2' }, 'Firebaseを手動操作'),
+                    e('p', { className: 'text-xs text-blue-800 mb-3' }, `保存先: boards/${currentBoardId || DEFAULT_FIREBASE_BOARD_ID}`),
+                    e('div', { className: 'flex gap-2' },
+                      e('button', { onClick: manualPushToFirebase, className: 'flex-1 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold' }, '手動アップロード'),
+                      e('button', { onClick: manualPullFromFirebase, className: 'flex-1 px-3 py-2 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 text-xs font-bold' }, '手動取得')
+                    ),
+                    e('button', { onClick: copyCurrentBoardId, className: 'mt-2 w-full px-3 py-2 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 text-xs font-bold' }, 'ボードIDをコピー')
+                  )
+                ),
+                e('div', { className: 'rounded-xl border border-gray-200 bg-gray-50 p-4' },
+                  e('div', { className: 'flex items-center justify-between gap-3 mb-2' },
+                    e('h4', { className: 'font-bold text-gray-900' }, 'テキストで受け渡し'),
+                    e('button', { onClick: copyCurrentBoardJson, className: 'px-3 py-1.5 rounded-md bg-gray-800 text-white hover:bg-gray-700 text-xs font-bold' }, '現在のJSONをコピー')
+                  ),
+                  e('textarea', { value: manualImportText, onChange: ev => setManualImportText(ev.target.value), className: 'w-full h-40 p-3 rounded-lg border border-gray-300 bg-white text-xs font-mono focus:outline-none focus:ring-2 focus:ring-orange-500', placeholder: 'ここに受け取ったボードJSONを貼り付けます...' }),
+                  e('div', { className: 'flex justify-end gap-2 mt-3' },
+                    e('button', { onClick: () => setManualImportText(''), className: 'px-3 py-2 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-bold' }, 'クリア'),
+                    e('button', { onClick: () => importBoardJsonText(manualImportText, { asNewBoard: true }), disabled: !manualImportText.trim(), className: `px-3 py-2 rounded-md text-xs font-bold ${manualImportText.trim() ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}` }, '貼り付けJSONを別ボードとして読み込み')
+                  )
+                ),
+                e('div', { className: 'mt-4 text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-md p-3' },
+                  e('p', { className: 'font-bold text-gray-700 mb-1' }, '使い方'),
+                  e('p', null, '1. 共有したい側で「JSONを書き出し」または「現在のJSONをコピー」を押します。'),
+                  e('p', null, '2. 受け取る側で「JSONファイルを読み込み」または貼り付け欄から読み込みます。'),
+                  e('p', null, '3. Firebaseを使う場合は、同じボードIDを使って「手動アップロード」「手動取得」を実行します。')
                 )
               )
             ),
