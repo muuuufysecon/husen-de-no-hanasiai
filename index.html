@@ -60,7 +60,11 @@
       const [sidebarOpen, setSidebarOpen] = useState(true);
       const [showClearConfirm, setShowClearConfirm] = useState(false);
       const [overviewMode, setOverviewMode] = useState(false);
+      const [showAllNotesPanel, setShowAllNotesPanel] = useState(false);
+      const [selectedNoteIds, setSelectedNoteIds] = useState(new Set());
+      const [saveStatus, setSaveStatus] = useState('未保存');
       const boardRef = useRef(null);
+      const skipInitialSaveRef = useRef(true);
       const [tabs, setTabs] = useState([{ id: 'tab-1', name: 'メインボード' }]);
       const [activeTabId, setActiveTabId] = useState('tab-1');
       const [editingTabId, setEditingTabId] = useState(null);
@@ -77,11 +81,12 @@
         'bg-purple-200 border-purple-300 text-purple-900',
         'bg-white border-gray-300 text-gray-800'
       ];
+      const STORAGE_KEY = 'fusen_discussion_board_data_v1';
       const GRID_COLUMNS = 8;
       const INITIAL_GRID_ROWS = 5;
       const CELL_HEIGHT = 140;
       const BOARD_PADDING = 16;
-      const NOTE_INSET = 8;
+      const NOTE_INSET = 0;
 
       const boardStyle = {
         backgroundColor: '#f3f4f6'
@@ -114,6 +119,69 @@
         const selectedTabs = tabs.filter(tab => selectedTabIds.has(tab.id));
         return selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
       };
+
+      const getSaveData = () => ({
+        notes,
+        tabs,
+        activeTabId,
+        selectedTabIds: [...selectedTabIds],
+        highestZIndex,
+        pastedText,
+        columns,
+        rawData,
+        selectedTitleCol,
+        selectedRowIndices: [...selectedRowIndices]
+      });
+
+      const saveBoardData = (statusPrefix = '保存済み') => {
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(getSaveData()));
+          const time = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+          setSaveStatus(`${statusPrefix} ${time}`);
+        } catch (error) {
+          console.error('保存に失敗しました', error);
+          setSaveStatus('保存に失敗しました');
+        }
+      };
+
+      useEffect(() => {
+        try {
+          const savedText = localStorage.getItem(STORAGE_KEY);
+          if (!savedText) {
+            setSaveStatus('新規データ');
+            return;
+          }
+
+          const saved = JSON.parse(savedText);
+          setNotes(Array.isArray(saved.notes) ? saved.notes : []);
+          setTabs(Array.isArray(saved.tabs) && saved.tabs.length > 0 ? saved.tabs : [{ id: 'tab-1', name: 'メインボード' }]);
+          setActiveTabId(saved.activeTabId || 'tab-1');
+          setSelectedTabIds(new Set(Array.isArray(saved.selectedTabIds) && saved.selectedTabIds.length > 0 ? saved.selectedTabIds : ['tab-1']));
+          setHighestZIndex(Number.isFinite(saved.highestZIndex) ? saved.highestZIndex : 1);
+          setPastedText(saved.pastedText || '');
+          setColumns(Array.isArray(saved.columns) ? saved.columns : []);
+          setRawData(Array.isArray(saved.rawData) ? saved.rawData : []);
+          setSelectedTitleCol(saved.selectedTitleCol || '');
+          setSelectedRowIndices(new Set(Array.isArray(saved.selectedRowIndices) ? saved.selectedRowIndices : []));
+          setSaveStatus('保存データを読み込みました');
+        } catch (error) {
+          console.error('保存データの読み込みに失敗しました', error);
+          setSaveStatus('保存データの読み込みに失敗しました');
+        }
+      }, []);
+
+      useEffect(() => {
+        if (skipInitialSaveRef.current) {
+          skipInitialSaveRef.current = false;
+          return;
+        }
+
+        const timer = setTimeout(() => {
+          saveBoardData('自動保存済み');
+        }, 600);
+
+        return () => clearTimeout(timer);
+      }, [notes, tabs, activeTabId, selectedTabIds, highestZIndex, pastedText, columns, rawData, selectedTitleCol, selectedRowIndices]);
 
       const handlePaste = (e) => {
         const text = e.target.value;
@@ -275,7 +343,31 @@
       }, [draggingId, resizingId, handlePointerMove]);
 
       const updateNote = (id, field, value) => setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, [field]: value } : n));
-      const deleteNote = (id) => setNotes(prevNotes => prevNotes.filter(n => n.id !== id));
+      const deleteNote = (id) => {
+        setNotes(prevNotes => prevNotes.filter(n => n.id !== id));
+        setSelectedNoteIds(prev => {
+          const s = new Set(prev);
+          s.delete(id);
+          return s;
+        });
+      };
+      const toggleNoteSelection = (id) => setSelectedNoteIds(prev => {
+        const s = new Set(prev);
+        s.has(id) ? s.delete(id) : s.add(id);
+        return s;
+      });
+      const selectAllNotes = () => setSelectedNoteIds(new Set(notes.map(note => note.id)));
+      const clearSelectedNotes = () => setSelectedNoteIds(new Set());
+      const applyColorToSelectedNotes = (colorClass) => {
+        setNotes(prevNotes => prevNotes.map(note => selectedNoteIds.has(note.id) ? { ...note, color: colorClass } : note));
+      };
+      const deleteSelectedNotes = () => {
+        if (selectedNoteIds.size === 0) return;
+        const ok = window.confirm(`選択した ${selectedNoteIds.size} 件の付箋を削除します。よろしいですか？`);
+        if (!ok) return;
+        setNotes(prevNotes => prevNotes.filter(note => !selectedNoteIds.has(note.id)));
+        clearSelectedNotes();
+      };
       const toggleRowSelection = (index) => setSelectedRowIndices(prev => { const s = new Set(prev); s.has(index) ? s.delete(index) : s.add(index); return s; });
       const toggleAllRows = () => setSelectedRowIndices(selectedRowIndices.size === rawData.length ? new Set() : new Set(rawData.map((_, i) => i)));
       const toggleTabSelection = (e, tabId) => { e.stopPropagation(); setSelectedTabIds(prev => { const s = new Set(prev); s.has(tabId) ? s.delete(tabId) : s.add(tabId); return s; }); };
@@ -300,6 +392,7 @@
       const selectedTabs = tabs.filter(tab => selectedTabIds.has(tab.id));
       const overviewTabs = selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
       const overviewGridStyle = { display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(overviewTabs.length, 1), 3)}, minmax(0, 1fr))` };
+      const getTabName = (tabId) => (tabs.find(tab => tab.id === tabId) || {}).name || '不明なタブ';
       const renderMiniNote = (note) => React.createElement('div', { key: note.id, className: `rounded-md border p-2 text-xs shadow-sm break-words ${note.color}` }, note.text || '（空）');
       const activeNotes = notes.filter(n => n.tabId === activeTabId);
       const boardMetricsForRender = getBoardMetrics();
@@ -345,10 +438,12 @@
             e('div', { className: 'mt-8 border-t border-gray-100 pt-4' },
               e('p', { className: 'text-xs text-gray-500 mb-3' }, '操作ヒント:'),
               e('ul', { className: 'text-xs text-gray-600 space-y-2 list-disc pl-4' },
-                e('li', null, '付箋はドラッグ＆ドロップで移動できます。'),
+                e('li', null, '付箋はマスと同じ大きさで表示されます。ドラッグ＆ドロップで移動できます。'),
                 e('li', null, 'ダブルクリックまたは鉛筆アイコンで内容を編集できます。'),
                 e('li', null, '右下のカラーパレットで色を変更できます。'),
-                e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。')
+                e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
+                e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
+                e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。')
               )
             )
           )
@@ -362,7 +457,10 @@
               ),
               e('div', { className: 'flex items-center gap-2 flex-wrap' },
                 e('button', { onClick: addBlankNote, className: 'px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'plus', size: 16 }), '新しい付箋'),
+                e('button', { onClick: () => setShowAllNotesPanel(true), className: 'px-3 py-2 bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'list-checks', size: 16 }), `付箋一覧 ${notes.length}件`),
                 e('button', { onClick: () => setOverviewMode(!overviewMode), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${overviewMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}` }, e(Icon, { name: 'maximize-2', size: 16 }), overviewMode ? '通常表示' : '選択タブを一覧表示'),
+                e('button', { onClick: () => saveBoardData('保存済み'), className: 'px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'save', size: 16 }), '保存'),
+                e('span', { className: 'text-xs text-gray-500 min-w-[120px]' }, saveStatus),
                 e('button', { onClick: exportToPdf, className: 'px-3 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'message-square', size: 16 }), 'PDF化'),
                 e('button', { onClick: () => setShowClearConfirm(true), className: 'p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors', title: '現在のタブの付箋をすべてクリア' }, e(Icon, { name: 'trash-2', size: 20 }))
               )
@@ -382,6 +480,40 @@
               e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
               e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
             )),
+            showAllNotesPanel && e('div', { className: 'absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4' },
+              e('div', { className: 'bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden' },
+                e('div', { className: 'p-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3' },
+                  e('div', null,
+                    e('h2', { className: 'text-lg font-bold text-gray-900' }, 'すべての付箋一覧'),
+                    e('p', { className: 'text-xs text-gray-500 mt-1' }, `${notes.length}件中 ${selectedNoteIds.size}件を選択中`)
+                  ),
+                  e('div', { className: 'flex flex-wrap items-center gap-2' },
+                    e('button', { onClick: selectAllNotes, className: 'px-3 py-1.5 text-xs font-medium rounded-md bg-blue-50 text-blue-700 hover:bg-blue-100' }, '全選択'),
+                    e('button', { onClick: clearSelectedNotes, className: 'px-3 py-1.5 text-xs font-medium rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200' }, '選択解除'),
+                    e('button', { onClick: deleteSelectedNotes, disabled: selectedNoteIds.size === 0, className: `px-3 py-1.5 text-xs font-medium rounded-md ${selectedNoteIds.size === 0 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-red-50 text-red-700 hover:bg-red-100'}` }, '選択を削除'),
+                    e('button', { onClick: () => setShowAllNotesPanel(false), className: 'px-3 py-1.5 text-xs font-medium rounded-md bg-gray-800 text-white hover:bg-gray-700' }, '閉じる')
+                  )
+                ),
+                e('div', { className: 'p-4 border-b border-gray-100 bg-gray-50 flex flex-wrap items-center gap-2' },
+                  e('span', { className: 'text-sm font-medium text-gray-700 mr-1' }, '選択した付箋の色：'),
+                  colors.map((colorClass, idx) => e('button', { key: idx, onClick: () => applyColorToSelectedNotes(colorClass), disabled: selectedNoteIds.size === 0, className: `w-8 h-8 rounded-full border border-black/20 ${colorClass.split(' ')[0]} ${selectedNoteIds.size === 0 ? 'opacity-40 cursor-not-allowed' : 'hover:scale-110 transition-transform'}`, title: '選択した付箋の色を変更' }))
+                ),
+                e('div', { className: 'overflow-auto p-4' },
+                  notes.length === 0 ? e('div', { className: 'text-center text-gray-400 py-12' }, '付箋がありません') :
+                  e('div', { className: 'space-y-2' }, notes.map(note => e('label', { key: note.id, className: `flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${selectedNoteIds.has(note.id) ? 'border-blue-400 bg-blue-50' : 'border-gray-200 hover:bg-gray-50'}` },
+                    e('input', { type: 'checkbox', className: 'mt-1 rounded text-blue-600 focus:ring-blue-500', checked: selectedNoteIds.has(note.id), onChange: () => toggleNoteSelection(note.id) }),
+                    e('div', { className: `w-5 h-5 rounded border shrink-0 mt-0.5 ${note.color.split(' ')[0]} ${note.color.split(' ')[1] || ''}` }),
+                    e('div', { className: 'flex-1 min-w-0' },
+                      e('div', { className: 'flex flex-wrap items-center gap-2 mb-1' },
+                        e('span', { className: 'text-xs font-medium text-gray-500 bg-gray-100 rounded px-2 py-0.5' }, getTabName(note.tabId)),
+                        e('span', { className: 'text-xs text-gray-400' }, `行 ${((note.gridRow ?? 0) + 1)}・列 ${((note.gridColumn ?? 0) + 1)}`)
+                      ),
+                      e('div', { className: 'text-sm text-gray-800 whitespace-pre-wrap break-words' }, note.text || '（空）')
+                    )
+                  )))
+                )
+              )
+            ),
             overviewMode ? e('div', { className: 'absolute inset-0 p-4 overflow-auto bg-gray-100' }, e('div', { className: 'gap-4 h-full', style: overviewGridStyle }, overviewTabs.map(tab => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('div', { key: tab.id, className: 'bg-white rounded-lg border border-gray-200 shadow-sm p-3 min-h-[260px] overflow-auto' }, e('div', { className: 'flex items-center justify-between mb-3 border-b border-gray-100 pb-2' }, e('h2', { className: 'font-bold text-gray-800' }, tab.name), e('span', { className: 'text-xs text-gray-500' }, `${tabNotes.length} 件`)), tabNotes.length === 0 ? e('div', { className: 'text-sm text-gray-400 text-center py-10' }, '付箋がありません') : e('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-2' }, tabNotes.map(renderMiniNote))); }))) : e(React.Fragment, null,
               e('div', { className: 'pointer-events-none', style: { height: `${boardContentHeight}px` } }),
               e('div', { className: 'absolute left-0 top-0 grid pointer-events-none p-4', style: { width: '100%', height: `${boardContentHeight}px`, gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${boardRows}, ${CELL_HEIGHT}px)` } },
@@ -389,7 +521,7 @@
               ),
               activeNotes.map(note => {
                 const noteStyle = { left: `${note.x}px`, top: `${note.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: note.zIndex, pointerEvents: draggingId === note.id ? 'none' : 'auto' };
-                return e('div', { key: note.id, className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg ${note.color} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id) },
+                return e('div', { key: note.id, className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id) },
                   e('div', { 'data-no-drag': 'true', className: 'flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg' }, e('div', { className: 'flex gap-1' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }, className: 'p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors', title: '編集' }, e(Icon, { name: 'edit-3', size: 14 })), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors', title: 'この付箋を削除' }, e(Icon, { name: 'trash-2', size: 14 })))),
                   e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' }, note.isEditing ? e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), className: 'w-full h-full bg-white/50 border border-black/20 rounded p-1 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...', autoFocus: true }) : e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: () => updateNote(note.id, 'isEditing', true) }, note.text)),
                   e('div', { 'data-no-drag': 'true', className: 'p-2 flex gap-1 justify-center border-t border-black/5 opacity-0 hover:opacity-100 transition-opacity mt-auto shrink-0' }, colors.map((colorClass, idx) => e('button', { key: idx, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '色を変更' }))),
