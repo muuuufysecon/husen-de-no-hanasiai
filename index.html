@@ -704,7 +704,7 @@
       const renderTopRightTags = (tags) => {
         const tagList = Array.isArray(tags) ? tags.map(tag => String(tag || '').trim()).filter(Boolean) : [];
         if (tagList.length === 0) return null;
-        return e('div', { className: 'absolute top-1 left-16 right-1 max-h-[46px] overflow-hidden flex flex-wrap justify-end gap-1 z-10 pointer-events-none' },
+        return e('div', { className: 'absolute top-1 left-16 right-1 max-h-[46px] overflow-hidden flex flex-row-reverse flex-wrap justify-start content-start gap-1 z-10 pointer-events-none' },
           tagList.map((tag, index) => e('span', { key: `${tag}-${index}`, className: 'text-[9px] px-1 py-0.5 rounded-full bg-white/85 border border-black/10 text-gray-700 leading-tight shadow-sm truncate max-w-[96px]' }, `#${tag}`))
         );
       };
