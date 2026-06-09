@@ -895,7 +895,23 @@
       const panelTabs = [{ id: 'all', name: 'すべて', count: notes.length }, ...tabs.map(tab => ({ ...tab, count: notes.filter(note => note.tabId === tab.id).length }))];
       const panelNotes = allNotesPanelTabId === 'all' ? notes : notes.filter(note => note.tabId === allNotesPanelTabId);
       const activeNotes = notes.filter(n => n.tabId === activeTabId);
+      const editingNote = notes.find(note => note.isEditing) || null;
       const boardMetricsForRender = getBoardMetrics();
+      const getOverlapCellKey = (note) => {
+        const column = Math.min(GRID_COLUMNS - 1, Math.max(0, Number.isFinite(note.gridColumn) ? note.gridColumn : Math.round((note.x - boardMetricsForRender.padding) / boardMetricsForRender.cellWidth)));
+        const row = Math.max(0, Number.isFinite(note.gridRow) ? note.gridRow : Math.round((note.y - boardMetricsForRender.padding) / boardMetricsForRender.cellHeight));
+        return `${row}-${column}`;
+      };
+      const overlapGroups = activeNotes.reduce((groups, note) => {
+        const key = getOverlapCellKey(note);
+        groups[key] = groups[key] || [];
+        groups[key].push(note.id);
+        return groups;
+      }, {});
+      const overlapCountByNoteId = {};
+      Object.values(overlapGroups).forEach(group => {
+        if (group.length > 1) group.forEach(noteId => { overlapCountByNoteId[noteId] = group.length; });
+      });
       const highestUsedRow = activeNotes.reduce((maxRow, note) => {
         const row = Math.max(0, Math.round((note.y - boardMetricsForRender.padding) / boardMetricsForRender.cellHeight));
         return Math.max(maxRow, row);
@@ -946,9 +962,9 @@
             e('div', { className: 'mt-8 border-t border-gray-100 pt-4' },
               e('p', { className: 'text-xs text-gray-500 mb-3' }, '操作ヒント:'),
               e('ul', { className: 'text-xs text-gray-600 space-y-2 list-disc pl-4' },
-                e('li', null, '付箋はマスと同じ大きさで表示されます。ドラッグ＆ドロップで移動できます。'),
+                e('li', null, '付箋はマスと同じ大きさで表示されます。ドラッグ＆ドロップで移動できます。付箋が同じマスで重なると、オレンジ色の枠と「重なり」表示が出ます。'),
                 e('li', null, 'ボードのマスをダブルクリックすると、その場所に新しい付箋を作成できます。'),
-                e('li', null, 'ダブルクリックまたは鉛筆アイコンで付箋の内容とタグを編集できます。タグは付箋右上に表示され、日本語も入力できます。最大30個まで追加できます。'),
+                e('li', null, 'ダブルクリックまたは「+ タグ」で付箋用の入力モーダルを開き、本文・タグ・色を広い画面で編集できます。タグは最大30個まで追加できます。'),
                 e('li', null, '2色目は付箋下部の細い帯として表示されます。'),
                 e('li', null, '本文はEnterで編集完了、Shift+Enterで改行できます。'),
                 e('li', null, '「付箋一覧」はタブごとに表示を切り替えられます。'),
@@ -1083,42 +1099,80 @@
               activeNotes.map(note => {
                 const renderedCell = getNoteGridPositionForRender(note);
                 const noteStyle = { left: `${draggingId === note.id ? note.x : renderedCell.x}px`, top: `${draggingId === note.id ? note.y : renderedCell.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: Math.min(note.zIndex, 999), pointerEvents: draggingId === note.id ? 'none' : 'auto', ...getNoteBackgroundStyle(note) };
-                return e('div', { key: note.id, 'data-board-note': 'true', className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg cursor-grab active:cursor-grabbing touch-none ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); } },
+                const overlapCount = overlapCountByNoteId[note.id] || 0;
+                return e('div', { key: note.id, 'data-board-note': 'true', className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg cursor-grab active:cursor-grabbing touch-none ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${overlapCount > 1 && !selectedNoteIds.has(note.id) ? 'ring-4 ring-orange-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); } },
+                  overlapCount > 1 && e('div', { className: 'absolute -top-3 right-2 z-20 px-2 py-0.5 rounded-full bg-orange-500 text-white text-[10px] font-bold shadow-md pointer-events-none' }, `重なり ${overlapCount}件`),
                   !note.isEditing && renderTopRightTags(note.tags),
                   !note.isEditing && e('div', { 'data-no-drag': 'true', className: `flex justify-start items-start p-1.5 transition-opacity absolute top-0 left-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg pointer-events-none ${selectedNoteIds.has(note.id) ? 'opacity-100' : 'opacity-0 hover:opacity-100'}` }, e('div', { className: 'flex gap-1 pointer-events-auto' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); toggleNoteSelection(note.id); }, className: `w-5 h-5 rounded border flex items-center justify-center text-[11px] font-bold transition-colors ${selectedNoteIds.has(note.id) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white/80 border-black/20 text-transparent hover:text-blue-600'}`, title: 'この付箋を選択' }, '✓'), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addEmptyTagToNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-white/85 border border-black/10 text-[10px] font-medium text-gray-700 hover:bg-white hover:text-blue-700 shadow-sm transition-colors', title: '新しいタグ欄を追加' }, '+ タグ'), selectedNoteIds.has(note.id) && e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-red-600 text-white border border-red-700 text-[10px] font-bold hover:bg-red-700 shadow-sm transition-colors', title: '選択した付箋を削除' }, '削除'))),
                   e('div', { className: 'p-3 pt-6 flex-1 flex flex-col gap-1 overflow-hidden' },
-                    note.isEditing ? e(React.Fragment, null,
-                      e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'text'), className: 'w-full flex-1 min-h-0 bg-white/50 border border-black/20 rounded p-2 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...' }),
-                      e(React.Fragment, null,
-                        e('div', { 'data-no-drag': 'true', className: 'flex flex-wrap gap-1 rounded bg-white/50 border border-black/10 p-1 max-h-14 overflow-y-auto' },
-                          (Array.isArray(note.tags) && note.tags.length > 0 ? note.tags : ['']).map((tag, tagIndex) =>
-                            e('div', { key: tagIndex, className: 'flex items-center gap-1 bg-white/80 border border-black/10 rounded-full px-1.5 py-0.5' },
-                              e('span', { className: 'text-[10px] text-gray-500' }, '#'),
-                              e('input', { 'data-no-drag': 'true', type: 'text', value: tag, onChange: ev => updateTagAtIndex(note.id, tagIndex, ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter' && !ev.isComposing && !(ev.nativeEvent && ev.nativeEvent.isComposing)) { ev.preventDefault(); commitNoteEdit(note.id); } }, className: 'w-20 bg-transparent text-xs focus:outline-none', placeholder: 'タグ名' }),
-                              e('button', { 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); removeTagAtIndex(note.id, tagIndex); }, className: 'text-[10px] text-gray-400 hover:text-red-600', title: 'このタグを削除' }, '×')
-                            )
-                          ),
-                          e('button', { 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addEmptyTagToNote(note.id); }, className: 'px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-100 text-[10px] font-medium hover:bg-blue-100', title: '新しいタグ欄を追加' }, '+ タグ')
-                        ),
-                        allAvailableTags.filter(tag => !(Array.isArray(note.tags) ? note.tags.map(t => String(t || '').trim()).filter(Boolean).includes(tag) : false)).length > 0 && e('div', { 'data-no-drag': 'true', className: 'flex flex-wrap gap-1 rounded bg-white/40 border border-black/10 p-1 max-h-12 overflow-y-auto' },
-                          e('span', { className: 'text-[10px] text-gray-500 px-1 py-0.5' }, '既存タグ:'),
-                          allAvailableTags.filter(tag => !(Array.isArray(note.tags) ? note.tags.map(t => String(t || '').trim()).filter(Boolean).includes(tag) : false)).map(tag =>
-                            e('button', { key: tag, 'data-no-drag': 'true', type: 'button', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); addExistingTagToNote(note.id, tag); }, className: 'px-2 py-0.5 rounded-full bg-white/85 border border-black/10 text-[10px] text-gray-700 hover:bg-blue-50 hover:text-blue-700', title: 'このタグを追加' }, `#${tag}`)
-                          )
-                        )
-                      )
-                    ) : e(React.Fragment, null,
-                      e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center pt-4', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
-                    )
+                    e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center pt-4', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
                   ),
                   !note.isEditing && e('div', { 'data-no-drag': 'true', className: 'absolute left-1 right-1 bottom-1 p-1 flex flex-col gap-1 justify-center rounded-md bg-white/65 border border-black/10 opacity-0 hover:opacity-100 transition-opacity pointer-events-none' },
                     e('div', { className: 'flex gap-1 justify-center items-center pointer-events-auto' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色1'), colors.map((colorClass, idx) => e('button', { key: `p-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '1色目を変更' }))),
                     e('div', { className: 'flex gap-1 justify-center items-center pointer-events-auto' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色2'), colors.map((colorClass, idx) => e('button', { key: `s-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '2色目を変更' })), note.color2 && e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color2', null); }, className: 'text-[10px] px-1 rounded bg-white/60 border border-black/10 text-black/60', title: '2色目を削除' }, 'なし'))
                   ),
-                  note.isEditing && e('div', { 'data-no-drag': 'true', className: 'absolute -bottom-10 left-0 w-full flex justify-center' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); commitNoteEdit(note.id); }, className: 'bg-gray-800 text-white text-xs px-3 py-1.5 rounded-full shadow-lg hover:bg-gray-700' }, '編集を完了')),
                   e('div', { className: 'resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-end justify-end p-1 opacity-50 hover:opacity-100', onMouseDown: ev => handleResizeDown(ev, note.id), onTouchStart: ev => handleResizeDown(ev, note.id) }, e('svg', { width: '8', height: '8', viewBox: '0 0 10 10', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' }, e('path', { d: 'M10 0V10H0L10 0Z', fill: 'currentColor', className: 'text-black/50' })))
                 );
               }),
+              editingNote && e('div', { className: 'fixed inset-0 z-[20000] bg-black/50 flex items-center justify-center p-4', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation() },
+                e('div', { className: 'bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation() },
+                  e('div', { className: 'px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-4' },
+                    e('div', null,
+                      e('h2', { className: 'text-lg font-bold text-gray-900' }, '付箋を編集'),
+                      e('p', { className: 'text-xs text-gray-500 mt-1' }, `${getTabName(editingNote.tabId)}・行 ${((editingNote.gridRow ?? 0) + 1)}・列 ${((editingNote.gridColumn ?? 0) + 1)}`)
+                    ),
+                    e('button', { 'data-no-drag': 'true', onClick: ev => { ev.stopPropagation(); commitNoteEdit(editingNote.id); }, className: 'text-gray-400 hover:text-gray-700 text-2xl leading-none px-2', title: '閉じる' }, '×')
+                  ),
+                  e('div', { className: 'p-5 overflow-y-auto space-y-5' },
+                    e('div', null,
+                      e('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, '本文'),
+                      e('textarea', { 'data-no-drag': 'true', value: editingNote.text, onChange: ev => updateNote(editingNote.id, 'text', ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter' && ev.ctrlKey) { ev.preventDefault(); commitNoteEdit(editingNote.id); } }, autoFocus: true, className: 'w-full h-40 bg-gray-50 border border-gray-300 rounded-lg p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y', placeholder: '情報を入力...' }),
+                      e('p', { className: 'text-xs text-gray-400 mt-1' }, 'Ctrl + Enter でも保存できます。')
+                    ),
+                    e('div', null,
+                      e('div', { className: 'flex items-center justify-between gap-3 mb-2' },
+                        e('label', { className: 'block text-sm font-bold text-gray-700' }, 'タグ'),
+                        e('button', { 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); addEmptyTagToNote(editingNote.id); }, className: 'px-3 py-1.5 rounded-full bg-blue-600 text-white text-xs font-bold hover:bg-blue-700', title: '新しいタグ欄を追加' }, '+ タグを追加')
+                      ),
+                      e('div', { 'data-no-drag': 'true', className: 'flex flex-wrap gap-2 rounded-lg bg-gray-50 border border-gray-200 p-3 min-h-[52px]' },
+                        (Array.isArray(editingNote.tags) && editingNote.tags.length > 0 ? editingNote.tags : ['']).map((tag, tagIndex) =>
+                          e('div', { key: tagIndex, className: 'flex items-center gap-1 bg-white border border-gray-200 rounded-full px-2 py-1 shadow-sm' },
+                            e('span', { className: 'text-xs text-gray-500' }, '#'),
+                            e('input', { 'data-no-drag': 'true', type: 'text', value: tag, onChange: ev => updateTagAtIndex(editingNote.id, tagIndex, ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter' && !ev.isComposing && !(ev.nativeEvent && ev.nativeEvent.isComposing)) { ev.preventDefault(); commitNoteEdit(editingNote.id); } }, className: 'w-28 bg-transparent text-sm focus:outline-none', placeholder: 'タグ名' }),
+                            e('button', { 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); removeTagAtIndex(editingNote.id, tagIndex); }, className: 'text-xs text-gray-400 hover:text-red-600 px-1', title: 'このタグを削除' }, '×')
+                          )
+                        )
+                      ),
+                      allAvailableTags.filter(tag => !(Array.isArray(editingNote.tags) ? editingNote.tags.map(t => String(t || '').trim()).filter(Boolean).includes(tag) : false)).length > 0 && e('div', { className: 'mt-3' },
+                        e('p', { className: 'text-xs font-bold text-gray-500 mb-2' }, '既存タグから選択'),
+                        e('div', { 'data-no-drag': 'true', className: 'flex flex-wrap gap-2 max-h-28 overflow-y-auto rounded-lg bg-blue-50/50 border border-blue-100 p-3' },
+                          allAvailableTags.filter(tag => !(Array.isArray(editingNote.tags) ? editingNote.tags.map(t => String(t || '').trim()).filter(Boolean).includes(tag) : false)).map(tag =>
+                            e('button', { key: tag, 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); addExistingTagToNote(editingNote.id, tag); }, className: 'px-3 py-1 rounded-full bg-white border border-blue-100 text-xs text-blue-700 hover:bg-blue-100', title: 'このタグを追加' }, `#${tag}`)
+                          )
+                        )
+                      )
+                    ),
+                    e('div', null,
+                      e('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, '色'),
+                      e('div', { className: 'space-y-3 rounded-lg bg-gray-50 border border-gray-200 p-3' },
+                        e('div', { className: 'flex flex-wrap items-center gap-2' },
+                          e('span', { className: 'text-xs font-bold text-gray-500 w-12' }, '色1'),
+                          colors.map((colorClass, idx) => e('button', { key: `modal-p-${idx}`, 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); updateNote(editingNote.id, 'color', colorClass); }, className: `w-8 h-8 rounded-full border-2 ${colorClass.split(' ')[0]} ${editingNote.color === colorClass ? 'border-blue-600 ring-2 ring-blue-200' : 'border-black/20'}`, title: '1色目を変更' }))
+                        ),
+                        e('div', { className: 'flex flex-wrap items-center gap-2' },
+                          e('span', { className: 'text-xs font-bold text-gray-500 w-12' }, '色2'),
+                          colors.map((colorClass, idx) => e('button', { key: `modal-s-${idx}`, 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); updateNote(editingNote.id, 'color2', colorClass); }, className: `w-8 h-8 rounded-full border-2 ${colorClass.split(' ')[0]} ${editingNote.color2 === colorClass ? 'border-blue-600 ring-2 ring-blue-200' : 'border-black/20'}`, title: '2色目を変更' })),
+                          e('button', { 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); updateNote(editingNote.id, 'color2', null); }, className: 'px-3 py-1.5 text-xs rounded-md bg-white border border-gray-300 text-gray-600 hover:bg-gray-100' }, '色2なし')
+                        )
+                      )
+                    )
+                  ),
+                  e('div', { className: 'px-5 py-4 border-t border-gray-200 bg-gray-50 flex flex-wrap justify-end gap-3' },
+                    e('button', { 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); deleteNote(editingNote.id); }, className: 'px-4 py-2 rounded-md bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 mr-auto' }, 'この付箋を削除'),
+                    e('button', { 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); commitNoteEdit(editingNote.id); }, className: 'px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700' }, '保存して閉じる')
+                  )
+                )
+              ),
               activeNotes.length === 0 && !sidebarOpen && e('div', { className: 'absolute inset-0 flex flex-col items-center justify-center text-gray-400 pointer-events-none' }, e(Icon, { name: 'message-square', size: 48, className: 'mb-4 opacity-50' }), e('p', { className: 'text-lg' }, '付箋がありません'), e('p', { className: 'text-sm mt-2' }, 'サイドバーからデータを取り込むか、「新しい付箋」を追加してください'))
             )
           )
