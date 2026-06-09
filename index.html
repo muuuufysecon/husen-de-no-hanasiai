@@ -87,6 +87,7 @@
       const CELL_HEIGHT = 140;
       const BOARD_PADDING = 16;
       const NOTE_INSET = 0;
+      const SIDE_PANEL_WIDTH = 384;
 
       const boardStyle = {
         backgroundColor: '#f3f4f6'
@@ -94,7 +95,8 @@
 
       const getBoardMetrics = () => {
         const boardWidth = boardRef.current ? boardRef.current.clientWidth : 960;
-        const cellWidth = Math.max(120, (boardWidth - BOARD_PADDING * 2) / GRID_COLUMNS);
+        const sidePanelWidth = showAllNotesPanel ? SIDE_PANEL_WIDTH : 0;
+        const cellWidth = Math.max(120, (boardWidth - sidePanelWidth - BOARD_PADDING * 2) / GRID_COLUMNS);
         return {
           cellWidth,
           cellHeight: CELL_HEIGHT,
@@ -457,7 +459,7 @@
               ),
               e('div', { className: 'flex items-center gap-2 flex-wrap' },
                 e('button', { onClick: addBlankNote, className: 'px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'plus', size: 16 }), '新しい付箋'),
-                e('button', { onClick: () => setShowAllNotesPanel(true), className: 'px-3 py-2 bg-slate-50 text-slate-700 hover:bg-slate-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'list-checks', size: 16 }), `付箋一覧 ${notes.length}件`),
+                e('button', { onClick: () => setShowAllNotesPanel(!showAllNotesPanel), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${showAllNotesPanel ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}` }, e(Icon, { name: 'list-checks', size: 16 }), showAllNotesPanel ? '付箋一覧を閉じる' : `付箋一覧 ${notes.length}件`),
                 e('button', { onClick: () => setOverviewMode(!overviewMode), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${overviewMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}` }, e(Icon, { name: 'maximize-2', size: 16 }), overviewMode ? '通常表示' : '選択タブを一覧表示'),
                 e('button', { onClick: () => saveBoardData('保存済み'), className: 'px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'save', size: 16 }), '保存'),
                 e('span', { className: 'text-xs text-gray-500 min-w-[120px]' }, saveStatus),
@@ -480,8 +482,8 @@
               e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
               e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
             )),
-            showAllNotesPanel && e('div', { className: 'absolute inset-0 z-40 flex items-center justify-center bg-black/40 p-4' },
-              e('div', { className: 'bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[88vh] flex flex-col overflow-hidden' },
+            showAllNotesPanel && e('div', { className: 'absolute right-0 top-0 bottom-0 z-40 bg-white border-l border-gray-200 shadow-2xl flex flex-col', style: { width: `${SIDE_PANEL_WIDTH}px` } },
+              e('div', { className: 'h-full flex flex-col overflow-hidden' },
                 e('div', { className: 'p-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3' },
                   e('div', null,
                     e('h2', { className: 'text-lg font-bold text-gray-900' }, 'すべての付箋一覧'),
@@ -516,7 +518,7 @@
             ),
             overviewMode ? e('div', { className: 'absolute inset-0 p-4 overflow-auto bg-gray-100' }, e('div', { className: 'gap-4 h-full', style: overviewGridStyle }, overviewTabs.map(tab => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('div', { key: tab.id, className: 'bg-white rounded-lg border border-gray-200 shadow-sm p-3 min-h-[260px] overflow-auto' }, e('div', { className: 'flex items-center justify-between mb-3 border-b border-gray-100 pb-2' }, e('h2', { className: 'font-bold text-gray-800' }, tab.name), e('span', { className: 'text-xs text-gray-500' }, `${tabNotes.length} 件`)), tabNotes.length === 0 ? e('div', { className: 'text-sm text-gray-400 text-center py-10' }, '付箋がありません') : e('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-2' }, tabNotes.map(renderMiniNote))); }))) : e(React.Fragment, null,
               e('div', { className: 'pointer-events-none', style: { height: `${boardContentHeight}px` } }),
-              e('div', { className: 'absolute left-0 top-0 grid pointer-events-none p-4', style: { width: '100%', height: `${boardContentHeight}px`, gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${boardRows}, ${CELL_HEIGHT}px)` } },
+              e('div', { className: 'absolute left-0 top-0 grid pointer-events-none p-4', style: { width: showAllNotesPanel ? `calc(100% - ${SIDE_PANEL_WIDTH}px)` : '100%', height: `${boardContentHeight}px`, gridTemplateColumns: `repeat(${GRID_COLUMNS}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${boardRows}, ${CELL_HEIGHT}px)` } },
                 gridCells.map((_, index) => e('div', { key: index, className: 'border border-gray-300/80 bg-white/30' }))
               ),
               activeNotes.map(note => {
