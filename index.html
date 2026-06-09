@@ -3,97 +3,72 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>付箋 話し合いアプリ</title>
-  <!-- Tailwind CSS (Play CDN) -->
+  <title>付箋 話し合いアプリ - HTMLプレビュー</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script>
-    // 動的に生成される色クラスを確実に含めるための safelist
-    tailwind.config = {
-      safelist: [
-        'bg-yellow-200','border-yellow-300','text-yellow-900',
-        'bg-pink-200','border-pink-300','text-pink-900',
-        'bg-blue-200','border-blue-300','text-blue-900',
-        'bg-green-200','border-green-300','text-green-900',
-        'bg-purple-200','border-purple-300','text-purple-900',
-        'bg-white','border-gray-300','text-gray-800'
-      ]
-    };
-  </script>
-  <!-- React 18 (UMD) -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <!-- Babel Standalone (JSXのブラウザ変換) -->
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     html, body, #root { height: 100%; margin: 0; }
-    .board-pattern {
-      background-image: radial-gradient(circle, rgba(0,0,0,0.08) 1px, transparent 1px);
-      background-size: 20px 20px;
-    }
-    #loading {
-      position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-      font-family: sans-serif; color: #6b7280; font-size: 14px;
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    @media screen { .print-area { display: none; } }
+    @media print {
+      @page { size: A4 landscape; margin: 10mm; }
+      body * { visibility: hidden !important; }
+      .print-area, .print-area * { visibility: visible !important; }
+      .print-area {
+        display: block !important;
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        padding: 16px !important;
+        background: white !important;
+        color: #111827 !important;
+        font-family: sans-serif !important;
+      }
+      .print-page-break { page-break-after: always; }
+      .no-print { display: none !important; }
     }
   </style>
 </head>
 <body>
-  <div id="root"><div id="loading">読み込み中…</div></div>
+  <div id="root"></div>
 
-  <script type="text/babel" data-presets="react">
+  <script>
     const { useState, useRef, useEffect, useCallback } = React;
 
-    // --- アイコン（lucide風 SVG） ---
-    const makeIcon = (inner) => ({ size = 24, className = '', ...props }) =>
-      React.createElement('svg', {
-        xmlns: 'http://www.w3.org/2000/svg', width: size, height: size,
-        viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
-        strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round',
-        className, ...props,
-        dangerouslySetInnerHTML: { __html: inner }
+    const Icon = ({ name, size = 18, className = '' }) => {
+      useEffect(() => { if (window.lucide) window.lucide.createIcons(); });
+      return React.createElement('i', {
+        'data-lucide': name,
+        className,
+        style: { width: size + 'px', height: size + 'px', display: 'inline-block' }
       });
-
-    const Upload = makeIcon('<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/>');
-    const Plus = makeIcon('<path d="M5 12h14"/><path d="M12 5v14"/>');
-    const Trash2 = makeIcon('<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/>');
-    const Edit3 = makeIcon('<path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/>');
-    const Type = makeIcon('<polyline points="4 7 4 4 20 4 20 7"/><line x1="9" x2="15" y1="20" y2="20"/><line x1="12" x2="12" y1="4" y2="20"/>');
-    const Move = makeIcon('<polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/>');
-    const MessageSquare = makeIcon('<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>');
-    const Maximize2 = makeIcon('<polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" x2="14" y1="3" y2="10"/><line x1="3" x2="10" y1="21" y2="14"/>');
-    const Minimize2 = makeIcon('<polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/>');
+    };
 
     function App() {
-      // ステート管理
       const [rawData, setRawData] = useState([]);
       const [columns, setColumns] = useState([]);
       const [notes, setNotes] = useState([]);
       const [pastedText, setPastedText] = useState('');
-
-      // 付箋化の設定
       const [selectedTitleCol, setSelectedTitleCol] = useState('');
       const [selectedRowIndices, setSelectedRowIndices] = useState(new Set());
-
-      // ドラッグ＆ドロップ用ステート
       const [draggingId, setDraggingId] = useState(null);
       const [offset, setOffset] = useState({ x: 0, y: 0 });
       const [highestZIndex, setHighestZIndex] = useState(1);
-
-      // UI状態
       const [sidebarOpen, setSidebarOpen] = useState(true);
       const [showClearConfirm, setShowClearConfirm] = useState(false);
+      const [overviewMode, setOverviewMode] = useState(false);
       const boardRef = useRef(null);
-
-      // タブ管理
       const [tabs, setTabs] = useState([{ id: 'tab-1', name: 'メインボード' }]);
       const [activeTabId, setActiveTabId] = useState('tab-1');
       const [editingTabId, setEditingTabId] = useState(null);
-
-      // リサイズ用ステート
+      const [selectedTabIds, setSelectedTabIds] = useState(new Set(['tab-1']));
       const [resizingId, setResizingId] = useState(null);
       const [resizeStartSize, setResizeStartSize] = useState({ width: 0, height: 0 });
       const [resizeStartPos, setResizeStartPos] = useState({ x: 0, y: 0 });
 
-      // カラーパレット
       const colors = [
         'bg-yellow-200 border-yellow-300 text-yellow-900',
         'bg-pink-200 border-pink-300 text-pink-900',
@@ -102,158 +77,109 @@
         'bg-purple-200 border-purple-300 text-purple-900',
         'bg-white border-gray-300 text-gray-800'
       ];
+      const boardStyle = {
+        backgroundImage: 'radial-gradient(circle, rgba(0,0,0,0.08) 1px, transparent 1px)',
+        backgroundSize: '20px 20px'
+      };
+      const getPrintableTabs = () => {
+        const selectedTabs = tabs.filter(tab => selectedTabIds.has(tab.id));
+        return selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
+      };
 
-      // Excel/スプレッドシートのコピペデータ（TSV）をパースする
       const handlePaste = (e) => {
         const text = e.target.value;
         setPastedText(text);
         if (!text.trim()) {
-          setRawData([]);
-          setColumns([]);
-          setSelectedRowIndices(new Set());
-          return;
+          setRawData([]); setColumns([]); setSelectedRowIndices(new Set()); return;
         }
-
-        try {
-          const rows = text.trim().split('\n').map(row => row.split('\t'));
-          if (rows.length > 0) {
-            const headers = rows[0].map(h => h.trim());
-            const data = rows.slice(1).map(row => {
-              let obj = {};
-              headers.forEach((h, i) => {
-                obj[h] = row[i] ? row[i].trim() : '';
-              });
-              return obj;
-            });
-
-            setColumns(headers);
-            setRawData(data);
-            setSelectedRowIndices(new Set(data.map((_, i) => i)));
-            if (headers.length > 0) setSelectedTitleCol(headers[0]);
-          }
-        } catch (error) {
-          console.error("データのパースに失敗しました", error);
+        const rows = text.trim().split('\n').map(row => row.split('\t'));
+        if (rows.length > 0) {
+          const headers = rows[0].map(h => h.trim());
+          const data = rows.slice(1).map(row => {
+            const obj = {};
+            headers.forEach((h, i) => { obj[h] = row[i] ? row[i].trim() : ''; });
+            return obj;
+          });
+          setColumns(headers);
+          setRawData(data);
+          setSelectedRowIndices(new Set(data.map((_, i) => i)));
+          if (headers.length > 0) setSelectedTitleCol(headers[0]);
         }
       };
 
-      // 選択したデータから付箋を生成
       const generateNotes = () => {
         if (!selectedTitleCol) return;
-
         const boardWidth = boardRef.current ? boardRef.current.clientWidth : 800;
         const boardHeight = boardRef.current ? boardRef.current.clientHeight : 600;
-
-        const newNotes = rawData
-          .filter((_, i) => selectedRowIndices.has(i))
-          .map((row, i) => ({
-            id: `note-${Date.now()}-${i}`,
-            text: row[selectedTitleCol] || '空のデータ',
-            x: Math.random() * (boardWidth - 250) + 20,
-            y: Math.random() * (boardHeight - 200) + 20,
-            width: 200,
-            height: 120,
-            zIndex: highestZIndex + i + 1,
-            color: colors[0],
-            isEditing: false,
-            tabId: activeTabId
-          }));
-
+        const targetRows = rawData.filter((_, i) => selectedRowIndices.has(i));
+        const newNotes = targetRows.map((row, i) => ({
+          id: `note-${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
+          text: row[selectedTitleCol] || '空のデータ',
+          x: Math.max(20, Math.random() * Math.max(boardWidth - 250, 100) + 20),
+          y: Math.max(20, Math.random() * Math.max(boardHeight - 200, 100) + 20),
+          width: 200, height: 120, zIndex: highestZIndex + i + 1,
+          color: colors[0], isEditing: false, tabId: activeTabId
+        }));
         setHighestZIndex(prev => prev + newNotes.length);
-        setNotes([...notes, ...newNotes]);
+        setNotes(prev => [...prev, ...newNotes]);
         setSidebarOpen(false);
       };
 
-      // 空の付箋を追加
       const addBlankNote = () => {
         const newZ = highestZIndex + 1;
         setHighestZIndex(newZ);
-        const newNote = {
-          id: `note-${Date.now()}`,
-          text: '新しい付箋',
-          x: 50,
-          y: 50,
-          width: 200,
-          height: 120,
-          zIndex: newZ,
-          color: colors[0],
-          isEditing: true,
-          tabId: activeTabId
-        };
-        setNotes([...notes, newNote]);
+        setNotes(prev => [...prev, {
+          id: `note-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          text: '新しい付箋', x: 50, y: 50, width: 200, height: 120,
+          zIndex: newZ, color: colors[0], isEditing: true, tabId: activeTabId
+        }]);
       };
 
-      // ドラッグ開始
       const handlePointerDown = (e, id) => {
-        if (e.target.tagName.toLowerCase() === 'textarea' || e.target.tagName.toLowerCase() === 'input') {
-          return;
-        }
-        if (e.target.closest('.resize-handle')) {
-          return;
-        }
-        if (e.type === 'touchstart' && !e.target.closest('.scrollable-area')) {
-          e.preventDefault();
-        }
-
+        const tagName = e.target.tagName.toLowerCase();
+        if (tagName === 'textarea' || tagName === 'input' || tagName === 'button' || e.target.closest('button') || e.target.closest('[data-no-drag="true"]') || e.target.closest('.resize-handle')) return;
+        if (e.type === 'touchstart' && !e.target.closest('.scrollable-area')) e.preventDefault();
+        const note = notes.find(n => n.id === id);
+        if (!note || !boardRef.current) return;
         const newZ = highestZIndex + 1;
         setHighestZIndex(newZ);
-        setNotes(notes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
+        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
         setDraggingId(id);
-
-        const note = notes.find(n => n.id === id);
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-
         const boardRect = boardRef.current.getBoundingClientRect();
-
-        setOffset({
-          x: clientX - boardRect.left - note.x,
-          y: clientY - boardRect.top - note.y
-        });
+        setOffset({ x: clientX - boardRect.left - note.x, y: clientY - boardRect.top - note.y });
       };
 
-      // リサイズ開始
       const handleResizeDown = (e, id) => {
         e.stopPropagation();
         if (e.type === 'touchstart') e.preventDefault();
-
+        const note = notes.find(n => n.id === id);
+        if (!note) return;
         const newZ = highestZIndex + 1;
         setHighestZIndex(newZ);
-        setNotes(notes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
+        setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, zIndex: newZ } : n));
         setResizingId(id);
-
-        const note = notes.find(n => n.id === id);
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-
         setResizeStartPos({ x: clientX, y: clientY });
         setResizeStartSize({ width: note.width || 200, height: note.height || 120 });
       };
 
-      // ドラッグ中
       const handlePointerMove = useCallback((e) => {
         if (!draggingId && !resizingId) return;
-
-        if (e.type === 'touchmove') {
-          e.preventDefault();
-        }
-
+        if (e.type === 'touchmove') e.preventDefault();
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
-
         if (resizingId) {
           const deltaX = clientX - resizeStartPos.x;
           const deltaY = clientY - resizeStartPos.y;
-          setNotes(prevNotes => prevNotes.map(note =>
-            note.id === resizingId ? {
-              ...note,
-              width: Math.max(120, resizeStartSize.width + deltaX),
-              height: Math.max(80, resizeStartSize.height + deltaY)
-            } : note
-          ));
+          setNotes(prevNotes => prevNotes.map(note => note.id === resizingId ? {
+            ...note, width: Math.max(120, resizeStartSize.width + deltaX), height: Math.max(80, resizeStartSize.height + deltaY)
+          } : note));
           return;
         }
-
-        if (draggingId) {
+        if (draggingId && boardRef.current) {
           const targetEl = document.elementFromPoint(clientX, clientY);
           if (targetEl) {
             const tabEl = targetEl.closest('[data-tab-id]');
@@ -261,50 +187,22 @@
               const hoverTabId = tabEl.getAttribute('data-tab-id');
               if (hoverTabId && hoverTabId !== activeTabId) {
                 setActiveTabId(hoverTabId);
-                setNotes(prevNotes => prevNotes.map(n =>
-                  n.id === draggingId ? { ...n, tabId: hoverTabId } : n
-                ));
+                setNotes(prevNotes => prevNotes.map(n => n.id === draggingId ? { ...n, tabId: hoverTabId } : n));
               }
             }
           }
-
-          if (boardRef.current) {
-            const boardRect = boardRef.current.getBoundingClientRect();
-            setNotes(prevNotes => prevNotes.map(note => {
-              if (note.id === draggingId) {
-                return {
-                  ...note,
-                  x: clientX - boardRect.left - offset.x,
-                  y: clientY - boardRect.top - offset.y
-                };
-              }
-              return note;
-            }));
-          }
+          const boardRect = boardRef.current.getBoundingClientRect();
+          setNotes(prevNotes => prevNotes.map(note => note.id === draggingId ? {
+            ...note, x: clientX - boardRect.left - offset.x, y: clientY - boardRect.top - offset.y
+          } : note));
         }
       }, [draggingId, resizingId, offset, resizeStartSize, resizeStartPos, activeTabId]);
 
-      // ドラッグ終了
-      const handlePointerUp = () => {
-        setDraggingId(null);
-        setResizingId(null);
-      };
-
-      // カーソルスタイルの制御
+      const handlePointerUp = () => { setDraggingId(null); setResizingId(null); };
       useEffect(() => {
-        if (draggingId) {
-          document.body.style.cursor = 'grabbing';
-        } else if (resizingId) {
-          document.body.style.cursor = 'se-resize';
-        } else {
-          document.body.style.cursor = '';
-        }
-        return () => {
-          document.body.style.cursor = '';
-        };
+        document.body.style.cursor = draggingId ? 'grabbing' : resizingId ? 'se-resize' : '';
+        return () => { document.body.style.cursor = ''; };
       }, [draggingId, resizingId]);
-
-      // グローバルなマウス/タッチイベントの登録
       useEffect(() => {
         if (draggingId || resizingId) {
           window.addEventListener('mousemove', handlePointerMove);
@@ -320,359 +218,129 @@
         };
       }, [draggingId, resizingId, handlePointerMove]);
 
-      // 付箋の更新
-      const updateNote = (id, field, value) => {
-        setNotes(notes.map(n => n.id === id ? { ...n, [field]: value } : n));
+      const updateNote = (id, field, value) => setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, [field]: value } : n));
+      const deleteNote = (id) => setNotes(prevNotes => prevNotes.filter(n => n.id !== id));
+      const toggleRowSelection = (index) => setSelectedRowIndices(prev => { const s = new Set(prev); s.has(index) ? s.delete(index) : s.add(index); return s; });
+      const toggleAllRows = () => setSelectedRowIndices(selectedRowIndices.size === rawData.length ? new Set() : new Set(rawData.map((_, i) => i)));
+      const toggleTabSelection = (e, tabId) => { e.stopPropagation(); setSelectedTabIds(prev => { const s = new Set(prev); s.has(tabId) ? s.delete(tabId) : s.add(tabId); return s; }); };
+      const addTab = () => {
+        const newTabId = `tab-${Date.now()}`;
+        const newTab = { id: newTabId, name: `タブ ${tabs.length + 1}` };
+        setTabs(prev => [...prev, newTab]); setActiveTabId(newTabId);
+        setSelectedTabIds(prev => { const s = new Set(prev); s.add(newTabId); return s; });
       };
-
-      // 付箋の削除
-      const deleteNote = (id) => {
-        setNotes(notes.filter(n => n.id !== id));
+      const deleteTab = (e, tabId) => {
+        e.stopPropagation(); if (tabs.length <= 1) return;
+        const targetTab = tabs.find(tab => tab.id === tabId);
+        const ok = window.confirm(`「${targetTab ? targetTab.name : 'このタブ'}」を削除します。このタブの付箋も削除されます。よろしいですか？`);
+        if (!ok) return;
+        const remainingTabs = tabs.filter(tab => tab.id !== tabId);
+        setTabs(remainingTabs); setNotes(prev => prev.filter(note => note.tabId !== tabId));
+        setSelectedTabIds(prev => { const s = new Set([...prev].filter(id => id !== tabId)); if (s.size === 0 && remainingTabs[0]) s.add(remainingTabs[0].id); return s; });
+        if (activeTabId === tabId && remainingTabs[0]) setActiveTabId(remainingTabs[0].id);
       };
+      const exportToPdf = () => { if (getPrintableTabs().length === 0) { window.alert('PDF化するタブを選択してください。'); return; } setTimeout(() => window.print(), 100); };
 
-      // 行の選択トグル
-      const toggleRowSelection = (index) => {
-        const newSet = new Set(selectedRowIndices);
-        if (newSet.has(index)) {
-          newSet.delete(index);
-        } else {
-          newSet.add(index);
-        }
-        setSelectedRowIndices(newSet);
-      };
+      const selectedTabs = tabs.filter(tab => selectedTabIds.has(tab.id));
+      const overviewTabs = selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
+      const overviewGridStyle = { display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(overviewTabs.length, 1), 3)}, minmax(0, 1fr))` };
+      const renderMiniNote = (note) => React.createElement('div', { key: note.id, className: `rounded-md border p-2 text-xs shadow-sm break-words ${note.color}` }, note.text || '（空）');
+      const e = React.createElement;
 
-      const toggleAllRows = () => {
-        if (selectedRowIndices.size === rawData.length) {
-          setSelectedRowIndices(new Set());
-        } else {
-          setSelectedRowIndices(new Set(rawData.map((_, i) => i)));
-        }
-      };
-
-      return (
-        <div className="flex h-screen w-full bg-gray-50 overflow-hidden font-sans text-gray-800">
-
-          {/* サイドバー */}
-          <div
-            className={`bg-white shadow-xl flex flex-col transition-all duration-300 ease-in-out z-20 ${
-              sidebarOpen ? 'w-80 border-r border-gray-200' : 'w-0 overflow-hidden'
-            }`}
-          >
-            <div className="p-5 flex-1 overflow-y-auto scrollable-area w-80">
-              <div className="flex items-center gap-2 mb-6">
-                <Upload className="text-blue-600" size={24} />
-                <h2 className="text-lg font-bold text-gray-800">データ取り込み</h2>
-              </div>
-
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  1. Excel/スプレッドシートからコピーして貼り付け
-                </label>
-                <textarea
-                  className="w-full h-32 p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm resize-none"
-                  placeholder="見出し行を含めてデータをここにペーストしてください..."
-                  value={pastedText}
-                  onChange={handlePaste}
-                />
-                {rawData.length > 0 && (
-                  <p className="text-xs text-green-600 mt-2 font-medium">
-                    ✓ {rawData.length} 件のデータを読み込みました
-                  </p>
-                )}
-              </div>
-
-              {columns.length > 0 && (
-                <div className="mb-6 space-y-4 border-t border-gray-100 pt-4">
-                  <label className="block text-sm font-medium text-gray-700">
-                    2. 付箋化する列の選択
-                  </label>
-
-                  <div>
-                    <label className="block text-xs text-gray-500 mb-1">付箋化する列 (必須)</label>
-                    <select
-                      className="w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500"
-                      value={selectedTitleCol}
-                      onChange={(e) => setSelectedTitleCol(e.target.value)}
-                    >
-                      <option value="">-- 選択してください --</option>
-                      {columns.map(col => <option key={col} value={col}>{col}</option>)}
-                    </select>
-                  </div>
-
-                  {selectedTitleCol && (
-                    <div className="space-y-2 border-t border-gray-100 pt-4 mt-4">
-                      <div className="flex justify-between items-center">
-                        <label className="block text-sm font-medium text-gray-700">
-                          2. 付箋化するデータの選択
-                        </label>
-                        <button
-                          onClick={toggleAllRows}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          {selectedRowIndices.size === rawData.length ? '全て解除' : '全て選択'}
-                        </button>
-                      </div>
-
-                      <div className="max-h-48 overflow-y-auto border border-gray-300 rounded-md bg-gray-50 p-2 space-y-1">
-                        {rawData.map((row, i) => (
-                          <label key={i} className="flex items-start gap-2 p-1.5 hover:bg-gray-200 rounded cursor-pointer transition-colors">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 rounded text-blue-600 focus:ring-blue-500"
-                              checked={selectedRowIndices.has(i)}
-                              onChange={() => toggleRowSelection(i)}
-                            />
-                            <div className="text-xs overflow-hidden flex-1">
-                              <div className="font-medium truncate text-gray-800">{row[selectedTitleCol] || '(空のデータ)'}</div>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                      <div className="text-xs text-right text-gray-500">
-                        {selectedRowIndices.size} / {rawData.length} 件選択中
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    onClick={generateNotes}
-                    disabled={!selectedTitleCol || selectedRowIndices.size === 0}
-                    className={`w-full py-2.5 rounded-md text-white font-medium flex items-center justify-center gap-2 transition-colors mt-4 ${
-                      (!selectedTitleCol || selectedRowIndices.size === 0) ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-sm'
-                    }`}
-                  >
-                    <MessageSquare size={18} />
-                    付箋を生成する
-                  </button>
-                </div>
-              )}
-
-              <div className="mt-8 border-t border-gray-100 pt-4">
-                <p className="text-xs text-gray-500 mb-3">操作ヒント:</p>
-                <ul className="text-xs text-gray-600 space-y-2 list-disc pl-4">
-                  <li>付箋はドラッグ＆ドロップで移動できます。</li>
-                  <li>ダブルクリックまたは鉛筆アイコンで内容を編集できます。</li>
-                  <li>右下のカラーパレットで色を変更できます。</li>
-                </ul>
-              </div>
-            </div>
-          </div>
-
-          {/* メインボード領域 */}
-          <div className="flex-1 flex flex-col relative">
-            {/* ヘッダー/ツールバー */}
-            <div className="bg-white/90 backdrop-blur-sm border-b border-gray-200 shadow-sm z-10 w-full flex flex-col shrink-0">
-              <div className="p-3 flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => setSidebarOpen(!sidebarOpen)}
-                    className="p-2 hover:bg-gray-100 rounded-md text-gray-600 transition-colors"
-                    title={sidebarOpen ? "サイドバーを閉じる" : "サイドバーを開く"}
-                  >
-                    {sidebarOpen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
-                  </button>
-                  <h1 className="text-lg font-bold text-gray-800">ディスカッションボード</h1>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={addBlankNote}
-                    className="px-4 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors"
-                  >
-                    <Plus size={16} />
-                    新しい付箋
-                  </button>
-                  <button
-                    onClick={() => setShowClearConfirm(true)}
-                    className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                    title="現在のタブの付箋をすべてクリア"
-                  >
-                    <Trash2 size={20} />
-                  </button>
-                </div>
-              </div>
-
-              {/* タブバー */}
-              <div className="flex px-3 pb-0 gap-1 overflow-x-auto items-end mt-1">
-                {tabs.map(tab => (
-                  <div
-                    key={tab.id}
-                    data-tab-id={tab.id}
-                    className={`group flex items-center px-4 py-2 rounded-t-lg text-sm font-medium cursor-pointer transition-colors whitespace-nowrap select-none border-t border-l border-r ${
-                      activeTabId === tab.id
-                        ? 'bg-gray-100 text-blue-700 border-gray-200'
-                        : 'bg-white text-gray-500 border-transparent hover:bg-gray-50 hover:text-gray-700'
-                    }`}
-                    onClick={() => setActiveTabId(tab.id)}
-                  >
-                    {editingTabId === tab.id ? (
-                      <input
-                        type="text"
-                        autoFocus
-                        defaultValue={tab.name}
-                        onBlur={(e) => {
-                          setTabs(tabs.map(t => t.id === tab.id ? { ...t, name: e.target.value || '無題' } : t));
-                          setEditingTabId(null);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') e.target.blur();
-                        }}
-                        className="px-1 py-0.5 text-sm border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 w-24 bg-white text-black"
-                      />
-                    ) : (
-                      <span onDoubleClick={() => setEditingTabId(tab.id)}>
-                        {tab.name}
-                      </span>
-                    )}
-                  </div>
-                ))}
-                <button
-                  onClick={() => {
-                    const newTabId = `tab-${Date.now()}`;
-                    setTabs([...tabs, { id: newTabId, name: `タブ ${tabs.length + 1}` }]);
-                    setActiveTabId(newTabId);
-                  }}
-                  className="px-3 py-2 text-gray-400 hover:text-blue-600 transition-colors ml-1 mb-1"
-                  title="新しいタブを追加"
-                >
-                  <Plus size={18} />
-                </button>
-              </div>
-            </div>
-
-            {/* キャンバスエリア */}
-            <div
-              ref={boardRef}
-              className="flex-1 bg-gray-100 relative overflow-hidden board-pattern cursor-crosshair"
-            >
-              {/* クリア確認モーダル */}
-              {showClearConfirm && (
-                <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/50">
-                  <div className="bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4">
-                    <h3 className="text-lg font-bold text-gray-900 mb-2">付箋を削除</h3>
-                    <p className="text-sm text-gray-500 mb-6">現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。</p>
-                    <div className="flex justify-end gap-3">
-                      <button
-                        onClick={() => setShowClearConfirm(false)}
-                        className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors"
-                      >
-                        キャンセル
-                      </button>
-                      <button
-                        onClick={() => { setNotes(notes.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }}
-                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors"
-                      >
-                        削除する
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {notes.filter(n => n.tabId === activeTabId).map(note => (
-                <div
-                  key={note.id}
-                  className={`absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg ${note.color} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`}
-                  style={{
-                    left: `${note.x}px`,
-                    top: `${note.y}px`,
-                    width: note.width ? `${note.width}px` : '200px',
-                    height: note.height ? `${note.height}px` : '120px',
-                    zIndex: note.zIndex,
-                    pointerEvents: draggingId === note.id ? 'none' : 'auto'
-                  }}
-                  onMouseDown={(e) => handlePointerDown(e, note.id)}
-                  onTouchStart={(e) => handlePointerDown(e, note.id)}
-                >
-                  {/* 付箋ヘッダー */}
-                  <div className="flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg">
-                    <div className="flex gap-1">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }}
-                        className="p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors"
-                      >
-                        <Edit3 size={14} />
-                      </button>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteNote(note.id); }}
-                        className="p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 付箋ボディ */}
-                  <div className="p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden">
-                    {note.isEditing ? (
-                      <textarea
-                        value={note.text}
-                        onChange={(e) => updateNote(note.id, 'text', e.target.value)}
-                        className="w-full h-full bg-white/50 border border-black/20 rounded p-1 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none"
-                        placeholder="情報を入力..."
-                        autoFocus
-                      />
-                    ) : (
-                      <div
-                        className="text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center"
-                        onDoubleClick={() => updateNote(note.id, 'isEditing', true)}
-                      >
-                        {note.text}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 付箋フッター（カラー選択） */}
-                  <div className="p-2 flex gap-1 justify-center border-t border-black/5 opacity-0 hover:opacity-100 transition-opacity mt-auto shrink-0">
-                    {colors.map((colorClass, idx) => (
-                      <button
-                        key={idx}
-                        onClick={(e) => { e.stopPropagation(); updateNote(note.id, 'color', colorClass); }}
-                        className={`w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`}
-                        title="色を変更"
-                      />
-                    ))}
-                  </div>
-
-                  {/* 編集完了ボタン */}
-                  {note.isEditing && (
-                    <div className="absolute -bottom-10 left-0 w-full flex justify-center">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); updateNote(note.id, 'isEditing', false); }}
-                        className="bg-gray-800 text-white text-xs px-3 py-1.5 rounded-full shadow-lg hover:bg-gray-700"
-                      >
-                        編集を完了
-                      </button>
-                    </div>
-                  )}
-
-                  {/* リサイズハンドル */}
-                  <div
-                    className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-end justify-end p-1 opacity-50 hover:opacity-100"
-                    onMouseDown={(e) => handleResizeDown(e, note.id)}
-                    onTouchStart={(e) => handleResizeDown(e, note.id)}
-                  >
-                    <svg width="8" height="8" viewBox="0 0 10 10" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M10 0V10H0L10 0Z" fill="currentColor" className="text-black/50" />
-                    </svg>
-                  </div>
-                </div>
-              ))}
-
-              {notes.filter(n => n.tabId === activeTabId).length === 0 && !sidebarOpen && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 pointer-events-none">
-                  <MessageSquare size={48} className="mb-4 opacity-50" />
-                  <p className="text-lg">付箋がありません</p>
-                  <p className="text-sm mt-2">サイドバーからデータを取り込むか、「新しい付箋」を追加してください</p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+      return e('div', { className: 'flex h-screen w-full bg-gray-50 overflow-hidden font-sans text-gray-800' },
+        e('div', { className: `no-print bg-white shadow-xl flex flex-col transition-all duration-300 ease-in-out z-20 ${sidebarOpen ? 'w-80 border-r border-gray-200' : 'w-0 overflow-hidden'}` },
+          e('div', { className: 'p-5 flex-1 overflow-y-auto scrollable-area w-80' },
+            e('div', { className: 'flex items-center gap-2 mb-6' }, e(Icon, { name: 'upload', className: 'text-blue-600', size: 24 }), e('h2', { className: 'text-lg font-bold text-gray-800' }, 'データ取り込み')),
+            e('div', { className: 'mb-6' },
+              e('label', { className: 'block text-sm font-medium text-gray-700 mb-2' }, '1. Excel/スプレッドシートからコピーして貼り付け'),
+              e('textarea', { className: 'w-full h-32 p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm resize-none', placeholder: '見出し行を含めてデータをここにペーストしてください...', value: pastedText, onChange: handlePaste }),
+              rawData.length > 0 && e('p', { className: 'text-xs text-green-600 mt-2 font-medium' }, `✓ ${rawData.length} 件のデータを読み込みました`)
+            ),
+            columns.length > 0 && e('div', { className: 'mb-6 space-y-4 border-t border-gray-100 pt-4' },
+              e('label', { className: 'block text-sm font-medium text-gray-700' }, '2. 付箋化する列の選択'),
+              e('div', null,
+                e('label', { className: 'block text-xs text-gray-500 mb-1' }, '付箋化する列（必須）'),
+                e('select', { className: 'w-full p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500', value: selectedTitleCol, onChange: ev => setSelectedTitleCol(ev.target.value) },
+                  e('option', { value: '' }, '-- 選択してください --'),
+                  columns.map(col => e('option', { key: col, value: col }, col))
+                )
+              ),
+              selectedTitleCol && e('div', { className: 'space-y-2 border-t border-gray-100 pt-4 mt-4' },
+                e('div', { className: 'flex justify-between items-center' }, e('label', { className: 'block text-sm font-medium text-gray-700' }, '3. 付箋化するデータの選択'), e('button', { onClick: toggleAllRows, className: 'text-xs text-blue-600 hover:text-blue-800' }, selectedRowIndices.size === rawData.length ? '全て解除' : '全て選択')),
+                e('div', { className: 'max-h-48 overflow-y-auto border border-gray-300 rounded-md bg-gray-50 p-2 space-y-1' }, rawData.map((row, i) =>
+                  e('label', { key: i, className: 'flex items-start gap-2 p-1.5 hover:bg-gray-200 rounded cursor-pointer transition-colors' },
+                    e('input', { type: 'checkbox', className: 'mt-0.5 rounded text-blue-600 focus:ring-blue-500', checked: selectedRowIndices.has(i), onChange: () => toggleRowSelection(i) }),
+                    e('div', { className: 'text-xs overflow-hidden flex-1' }, e('div', { className: 'font-medium truncate text-gray-800' }, row[selectedTitleCol] || '（空のデータ）'))
+                  )
+                )),
+                e('div', { className: 'text-xs text-right text-gray-500' }, `${selectedRowIndices.size} / ${rawData.length} 件選択中`)
+              ),
+              e('button', { onClick: generateNotes, disabled: !selectedTitleCol || selectedRowIndices.size === 0, className: `w-full py-2.5 rounded-md text-white font-medium flex items-center justify-center gap-2 transition-colors mt-4 ${(!selectedTitleCol || selectedRowIndices.size === 0) ? 'bg-gray-300 cursor-not-allowed' : 'bg-blue-600 hover:bg-blue-700 shadow-sm'}` }, e(Icon, { name: 'message-square', size: 18 }), '付箋を生成する')
+            ),
+            e('div', { className: 'mt-8 border-t border-gray-100 pt-4' },
+              e('p', { className: 'text-xs text-gray-500 mb-3' }, '操作ヒント:'),
+              e('ul', { className: 'text-xs text-gray-600 space-y-2 list-disc pl-4' },
+                e('li', null, '付箋はドラッグ＆ドロップで移動できます。'),
+                e('li', null, 'ダブルクリックまたは鉛筆アイコンで内容を編集できます。'),
+                e('li', null, '右下のカラーパレットで色を変更できます。'),
+                e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。')
+              )
+            )
+          )
+        ),
+        e('div', { className: 'flex-1 flex flex-col relative' },
+          e('div', { className: 'no-print bg-white/90 backdrop-blur-sm border-b border-gray-200 shadow-sm z-10 w-full flex flex-col shrink-0' },
+            e('div', { className: 'p-3 flex flex-wrap justify-between items-center gap-2' },
+              e('div', { className: 'flex items-center gap-3' },
+                e('button', { onClick: () => setSidebarOpen(!sidebarOpen), className: 'p-2 hover:bg-gray-100 rounded-md text-gray-600 transition-colors', title: sidebarOpen ? 'サイドバーを閉じる' : 'サイドバーを開く' }, e(Icon, { name: sidebarOpen ? 'minimize-2' : 'maximize-2', size: 20 })),
+                e('h1', { className: 'text-lg font-bold text-gray-800' }, 'ディスカッションボード')
+              ),
+              e('div', { className: 'flex items-center gap-2 flex-wrap' },
+                e('button', { onClick: addBlankNote, className: 'px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'plus', size: 16 }), '新しい付箋'),
+                e('button', { onClick: () => setOverviewMode(!overviewMode), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${overviewMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}` }, e(Icon, { name: 'maximize-2', size: 16 }), overviewMode ? '通常表示' : '選択タブを一覧表示'),
+                e('button', { onClick: exportToPdf, className: 'px-3 py-2 bg-green-50 text-green-700 hover:bg-green-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'message-square', size: 16 }), 'PDF化'),
+                e('button', { onClick: () => setShowClearConfirm(true), className: 'p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors', title: '現在のタブの付箋をすべてクリア' }, e(Icon, { name: 'trash-2', size: 20 }))
+              )
+            ),
+            e('div', { className: 'flex px-3 pb-0 gap-1 overflow-x-auto items-end mt-1' },
+              tabs.map(tab => e('div', { key: tab.id, 'data-tab-id': tab.id, className: `group flex items-center gap-2 px-3 py-2 rounded-t-lg text-sm font-medium cursor-pointer transition-colors whitespace-nowrap select-none border-t border-l border-r ${activeTabId === tab.id ? 'bg-gray-100 text-blue-700 border-gray-200' : 'bg-white text-gray-500 border-transparent hover:bg-gray-50 hover:text-gray-700'}`, onClick: () => setActiveTabId(tab.id) },
+                e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => toggleTabSelection(ev, tab.id), className: `w-4 h-4 rounded border flex items-center justify-center text-[10px] ${selectedTabIds.has(tab.id) ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-gray-300 text-transparent'}`, title: '一覧表示・PDF化の対象にする' }, '✓'),
+                editingTabId === tab.id ? e('input', { type: 'text', autoFocus: true, defaultValue: tab.name, onClick: ev => ev.stopPropagation(), onBlur: ev => { setTabs(prev => prev.map(t => t.id === tab.id ? { ...t, name: ev.target.value || '無題' } : t)); setEditingTabId(null); }, onKeyDown: ev => { if (ev.key === 'Enter') ev.target.blur(); }, className: 'px-1 py-0.5 text-sm border border-blue-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 w-24 bg-white text-black' }) : e('span', { onDoubleClick: () => setEditingTabId(tab.id) }, tab.name),
+                tabs.length > 1 && e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => deleteTab(ev, tab.id), className: 'opacity-60 hover:opacity-100 text-gray-400 hover:text-red-600 transition-colors', title: 'このタブを削除' }, '×')
+              )),
+              e('button', { onClick: addTab, className: 'px-3 py-2 text-gray-400 hover:text-blue-600 transition-colors ml-1 mb-1', title: '新しいタブを追加' }, e(Icon, { name: 'plus', size: 18 }))
+            )
+          ),
+          e('div', { ref: boardRef, className: 'flex-1 bg-gray-100 relative overflow-hidden cursor-crosshair', style: boardStyle },
+            showClearConfirm && e('div', { className: 'absolute inset-0 z-50 flex items-center justify-center bg-black/50' }, e('div', { className: 'bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4' },
+              e('h3', { className: 'text-lg font-bold text-gray-900 mb-2' }, '付箋を削除'),
+              e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
+              e('div', { className: 'flex justify-end gap-3' }, e('button', { onClick: () => setShowClearConfirm(false), className: 'px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md transition-colors' }, 'キャンセル'), e('button', { onClick: () => { setNotes(prev => prev.filter(n => n.tabId !== activeTabId)); setShowClearConfirm(false); }, className: 'px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-md transition-colors' }, '削除する'))
+            )),
+            overviewMode ? e('div', { className: 'absolute inset-0 p-4 overflow-auto bg-gray-100' }, e('div', { className: 'gap-4 h-full', style: overviewGridStyle }, overviewTabs.map(tab => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('div', { key: tab.id, className: 'bg-white rounded-lg border border-gray-200 shadow-sm p-3 min-h-[260px] overflow-auto' }, e('div', { className: 'flex items-center justify-between mb-3 border-b border-gray-100 pb-2' }, e('h2', { className: 'font-bold text-gray-800' }, tab.name), e('span', { className: 'text-xs text-gray-500' }, `${tabNotes.length} 件`)), tabNotes.length === 0 ? e('div', { className: 'text-sm text-gray-400 text-center py-10' }, '付箋がありません') : e('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-2' }, tabNotes.map(renderMiniNote))); }))) : e(React.Fragment, null,
+              notes.filter(n => n.tabId === activeTabId).map(note => {
+                const noteStyle = { left: `${note.x}px`, top: `${note.y}px`, width: `${note.width || 200}px`, height: `${note.height || 120}px`, zIndex: note.zIndex, pointerEvents: draggingId === note.id ? 'none' : 'auto' };
+                return e('div', { key: note.id, className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg ${note.color} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id) },
+                  e('div', { 'data-no-drag': 'true', className: 'flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg' }, e('div', { className: 'flex gap-1' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }, className: 'p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors', title: '編集' }, e(Icon, { name: 'edit-3', size: 14 })), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors', title: 'この付箋を削除' }, e(Icon, { name: 'trash-2', size: 14 })))),
+                  e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' }, note.isEditing ? e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), className: 'w-full h-full bg-white/50 border border-black/20 rounded p-1 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...', autoFocus: true }) : e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: () => updateNote(note.id, 'isEditing', true) }, note.text)),
+                  e('div', { 'data-no-drag': 'true', className: 'p-2 flex gap-1 justify-center border-t border-black/5 opacity-0 hover:opacity-100 transition-opacity mt-auto shrink-0' }, colors.map((colorClass, idx) => e('button', { key: idx, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '色を変更' }))),
+                  note.isEditing && e('div', { 'data-no-drag': 'true', className: 'absolute -bottom-10 left-0 w-full flex justify-center' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', false); }, className: 'bg-gray-800 text-white text-xs px-3 py-1.5 rounded-full shadow-lg hover:bg-gray-700' }, '編集を完了')),
+                  e('div', { className: 'resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-end justify-end p-1 opacity-50 hover:opacity-100', onMouseDown: ev => handleResizeDown(ev, note.id), onTouchStart: ev => handleResizeDown(ev, note.id) }, e('svg', { width: '8', height: '8', viewBox: '0 0 10 10', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' }, e('path', { d: 'M10 0V10H0L10 0Z', fill: 'currentColor', className: 'text-black/50' })))
+                );
+              }),
+              notes.filter(n => n.tabId === activeTabId).length === 0 && !sidebarOpen && e('div', { className: 'absolute inset-0 flex flex-col items-center justify-center text-gray-400 pointer-events-none' }, e(Icon, { name: 'message-square', size: 48, className: 'mb-4 opacity-50' }), e('p', { className: 'text-lg' }, '付箋がありません'), e('p', { className: 'text-sm mt-2' }, 'サイドバーからデータを取り込むか、「新しい付箋」を追加してください'))
+            )
+          )
+        ),
+        e('div', { className: 'print-area' },
+          e('h1', { style: { fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' } }, 'ディスカッションボード'),
+          e('p', { style: { marginBottom: '16px', color: '#4b5563' } }, '選択したタブの付箋一覧'),
+          getPrintableTabs().map((tab, tabIndex) => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('section', { key: tab.id, className: tabIndex < getPrintableTabs().length - 1 ? 'print-page-break' : '', style: { marginBottom: '20px' } }, e('h2', { style: { fontSize: '18px', fontWeight: 'bold', borderBottom: '1px solid #d1d5db', paddingBottom: '6px', marginBottom: '10px' } }, tab.name), tabNotes.length === 0 ? e('p', { style: { color: '#6b7280' } }, '付箋がありません。') : e('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' } }, tabNotes.map(note => e('div', { key: note.id, style: { border: '1px solid #d1d5db', borderRadius: '8px', padding: '10px', minHeight: '60px', whiteSpace: 'pre-wrap', breakInside: 'avoid', background: '#fef3c7' } }, note.text || '（空）')))); })
+        )
       );
     }
 
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App />);
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
   </script>
 </body>
 </html>
