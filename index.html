@@ -242,6 +242,13 @@
       };
 
       const handlePointerDown = (e, id) => {
+        if (e.detail >= 2) {
+          e.preventDefault();
+          e.stopPropagation();
+          updateNote(id, 'isEditing', true);
+          return;
+        }
+
         const tagName = e.target.tagName.toLowerCase();
         if (tagName === 'textarea' || tagName === 'input' || tagName === 'button' || e.target.closest('button') || e.target.closest('[data-no-drag="true"]') || e.target.closest('.resize-handle')) return;
         if (e.type === 'touchstart' && !e.target.closest('.scrollable-area')) e.preventDefault();
