@@ -293,7 +293,7 @@
         setFirebaseStatus('Firebase設定待ち');
       };
 
-      const normalizeNote = (note) => ({ ...note, updatedAt: Number.isFinite(note.updatedAt) ? note.updatedAt : 0 });
+      const normalizeNote = (note) => ({ ...note, tags: Array.isArray(note.tags) ? note.tags : [], updatedAt: Number.isFinite(note.updatedAt) ? note.updatedAt : 0 });
       const normalizeTab = (tab) => ({ ...tab, updatedAt: Number.isFinite(tab.updatedAt) ? tab.updatedAt : 0 });
       const normalizeDeletedMap = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
       const mergeDeletedMaps = (localMap, remoteMap) => {
@@ -520,7 +520,7 @@
             text: row[selectedTitleCol] || '空のデータ',
             ...cell,
             zIndex: highestZIndex + i + 1,
-            color: colors[0], color2: null, isEditing: false, tabId: activeTabId, updatedAt: Date.now()
+            color: colors[0], color2: null, tags: [], isEditing: false, tabId: activeTabId, updatedAt: Date.now()
           };
         });
         setHighestZIndex(prev => prev + newNotes.length);
@@ -538,7 +538,7 @@
           id: `note-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           text: '新しい付箋',
           ...cell,
-          zIndex: newZ, color: colors[0], color2: null, isEditing: true, tabId: activeTabId, updatedAt: Date.now()
+          zIndex: newZ, color: colors[0], color2: null, tags: [], isEditing: true, tabId: activeTabId, updatedAt: Date.now()
         }]);
       };
 
@@ -568,7 +568,7 @@
           id: `note-${Date.now()}-${Math.random().toString(36).slice(2)}`,
           text: '新しい付箋',
           ...cell,
-          zIndex: newZ, color: colors[0], color2: null, isEditing: true, tabId: activeTabId, updatedAt: Date.now()
+          zIndex: newZ, color: colors[0], color2: null, tags: [], isEditing: true, tabId: activeTabId, updatedAt: Date.now()
         }]);
       };
 
@@ -691,6 +691,16 @@
         pushUndoSnapshot();
         setNotes(prevNotes => prevNotes.map(n => n.id === id ? { ...n, [field]: value, updatedAt: Date.now() } : n));
       };
+      const parseTags = (value) => String(value || '').split(/[,\n、]/).map(tag => tag.trim()).filter(Boolean).slice(0, 8);
+      const formatTags = (tags) => Array.isArray(tags) ? tags.join(', ') : '';
+      const updateNoteTags = (id, value) => updateNote(id, 'tags', parseTags(value));
+      const renderTagChips = (tags, compact = false) => {
+        const tagList = Array.isArray(tags) ? tags : [];
+        if (tagList.length === 0) return null;
+        return e('div', { className: `flex flex-wrap gap-1 ${compact ? '' : 'justify-center'}` },
+          tagList.map(tag => e('span', { key: tag, className: `${compact ? 'text-[10px] px-1.5 py-0.5' : 'text-[11px] px-2 py-0.5'} rounded-full bg-white/75 border border-black/10 text-gray-700 leading-tight` }, `#${tag}`))
+        );
+      };
       const commitNoteEdit = (id) => updateNote(id, 'isEditing', false);
       const getCaretOffsetFromEvent = (ev) => {
         if (!ev) return null;
@@ -805,7 +815,10 @@
       const overviewTabs = selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
       const overviewGridStyle = { display: 'grid', gridTemplateColumns: `repeat(${Math.min(Math.max(overviewTabs.length, 1), 3)}, minmax(0, 1fr))` };
       const getTabName = (tabId) => (tabs.find(tab => tab.id === tabId) || {}).name || '不明なタブ';
-      const renderMiniNote = (note) => React.createElement('div', { key: note.id, draggable: true, onDragStart: ev => handleNoteDragStart(ev, note.id), onDragEnd: () => setDraggedListNoteId(null), className: `rounded-md border p-2 text-xs shadow-sm break-words cursor-grab active:cursor-grabbing ${note.color}`, title: 'ドラッグして別のタブへ移動' }, note.text || '（空）');
+      const renderMiniNote = (note) => React.createElement('div', { key: note.id, draggable: true, onDragStart: ev => handleNoteDragStart(ev, note.id), onDragEnd: () => setDraggedListNoteId(null), className: `rounded-md border p-2 text-xs shadow-sm break-words cursor-grab active:cursor-grabbing ${note.color}`, title: 'ドラッグして別のタブへ移動' },
+        renderTagChips(note.tags, true),
+        e('div', { className: 'mt-1' }, note.text || '（空）')
+      );
       const panelTabs = [{ id: 'all', name: 'すべて', count: notes.length }, ...tabs.map(tab => ({ ...tab, count: notes.filter(note => note.tabId === tab.id).length }))];
       const panelNotes = allNotesPanelTabId === 'all' ? notes : notes.filter(note => note.tabId === allNotesPanelTabId);
       const activeNotes = notes.filter(n => n.tabId === activeTabId);
@@ -862,7 +875,7 @@
               e('ul', { className: 'text-xs text-gray-600 space-y-2 list-disc pl-4' },
                 e('li', null, '付箋はマスと同じ大きさで表示されます。ドラッグ＆ドロップで移動できます。'),
                 e('li', null, 'ボードのマスをダブルクリックすると、その場所に新しい付箋を作成できます。'),
-                e('li', null, 'ダブルクリックまたは鉛筆アイコンで付箋の内容を編集できます。'),
+                e('li', null, 'ダブルクリックまたは鉛筆アイコンで付箋の内容とタグを編集できます。'),
                 e('li', null, '2色目は付箋下部の細い帯として表示されます。'),
                 e('li', null, '本文はEnterで編集完了、Shift+Enterで改行できます。'),
                 e('li', null, '「付箋一覧」はタブごとに表示を切り替えられます。'),
@@ -980,7 +993,8 @@
                         e('span', { className: 'text-xs font-medium text-gray-500 bg-gray-100 rounded px-2 py-0.5' }, getTabName(note.tabId)),
                         e('span', { className: 'text-xs text-gray-400' }, `行 ${((note.gridRow ?? 0) + 1)}・列 ${((note.gridColumn ?? 0) + 1)}`)
                       ),
-                      e('div', { className: 'text-sm text-gray-800 whitespace-pre-wrap break-words' }, note.text || '（空）')
+                      renderTagChips(note.tags, true),
+                      e('div', { className: 'text-sm text-gray-800 whitespace-pre-wrap break-words mt-1' }, note.text || '（空）')
                     )
                   )))
                 )
@@ -996,8 +1010,14 @@
                 const noteStyle = { left: `${draggingId === note.id ? note.x : renderedCell.x}px`, top: `${draggingId === note.id ? note.y : renderedCell.y}px`, width: `${Math.max(100, boardMetricsForRender.cellWidth - NOTE_INSET * 2)}px`, height: `${CELL_HEIGHT - NOTE_INSET * 2}px`, zIndex: Math.min(note.zIndex, 999), pointerEvents: draggingId === note.id ? 'none' : 'auto', ...getNoteBackgroundStyle(note) };
                 return e('div', { key: note.id, 'data-board-note': 'true', className: `absolute shadow-md rounded-lg border flex flex-col transition-shadow hover:shadow-lg cursor-grab active:cursor-grabbing touch-none ${note.color} ${selectedNoteIds.has(note.id) ? 'ring-4 ring-blue-400' : ''} ${draggingId === note.id ? 'opacity-90 shadow-xl scale-[1.02]' : ''}`, style: noteStyle, onMouseDown: ev => handlePointerDown(ev, note.id), onTouchStart: ev => handlePointerDown(ev, note.id), onDoubleClick: ev => { ev.stopPropagation(); startEditingNote(note.id, 'text', ev); } },
                   e('div', { 'data-no-drag': 'true', className: 'flex justify-end items-start p-1.5 opacity-0 hover:opacity-100 transition-opacity absolute top-0 right-0 w-full bg-gradient-to-b from-black/5 to-transparent rounded-t-lg pointer-events-none' }, e('div', { className: 'flex gap-1 pointer-events-auto' }, e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'isEditing', !note.isEditing); }, className: 'p-1 hover:bg-black/10 rounded text-black/50 hover:text-black transition-colors', title: '編集' }, e(Icon, { name: 'edit-3', size: 14 })), e('button', { 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); deleteNote(note.id); }, className: 'p-1 hover:bg-red-500/20 rounded text-black/50 hover:text-red-700 transition-colors', title: 'この付箋を削除' }, e(Icon, { name: 'trash-2', size: 14 })))),
-                  e('div', { className: 'p-3 pt-6 flex-1 flex flex-col justify-center overflow-hidden' },
-                    note.isEditing ? e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'text'), className: 'w-full h-full bg-white/50 border border-black/20 rounded p-2 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...' }) : e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
+                  e('div', { className: 'p-3 pt-6 flex-1 flex flex-col gap-1 overflow-hidden' },
+                    note.isEditing ? e(React.Fragment, null,
+                      e('textarea', { value: note.text, onChange: ev => updateNote(note.id, 'text', ev.target.value), onKeyDown: ev => handleEditKeyDown(ev, note.id), ref: el => focusEditingTextarea(el, note.id, 'text'), className: 'w-full flex-1 min-h-0 bg-white/50 border border-black/20 rounded p-2 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-black/30 resize-none', placeholder: '情報を入力...' }),
+                      e('input', { 'data-no-drag': 'true', type: 'text', value: formatTags(note.tags), onChange: ev => updateNoteTags(note.id, ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter') { ev.preventDefault(); commitNoteEdit(note.id); } }, className: 'w-full bg-white/70 border border-black/20 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-black/30', placeholder: 'タグ（カンマ区切り）' })
+                    ) : e(React.Fragment, null,
+                      renderTagChips(note.tags),
+                      e('div', { className: 'text-sm font-medium whitespace-pre-wrap break-words text-center flex-1 select-none overflow-y-auto w-full h-full flex items-center justify-center', onDoubleClick: ev => startEditingNote(note.id, 'text', ev) }, note.text)
+                    )
                   ),
                   e('div', { 'data-no-drag': 'true', className: 'absolute left-1 right-1 bottom-1 p-1 flex flex-col gap-1 justify-center rounded-md bg-white/65 border border-black/10 opacity-0 hover:opacity-100 transition-opacity pointer-events-none' },
                     e('div', { className: 'flex gap-1 justify-center items-center pointer-events-auto' }, e('span', { className: 'text-[10px] text-black/50 mr-1' }, '色1'), colors.map((colorClass, idx) => e('button', { key: `p-${idx}`, 'data-no-drag': 'true', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onClick: ev => { ev.stopPropagation(); updateNote(note.id, 'color', colorClass); }, className: `w-4 h-4 rounded-full border border-black/20 ${colorClass.split(' ')[0]}`, title: '1色目を変更' }))),
@@ -1014,7 +1034,10 @@
         e('div', { className: 'print-area' },
           e('h1', { style: { fontSize: '24px', fontWeight: 'bold', marginBottom: '8px' } }, 'ディスカッションボード'),
           e('p', { style: { marginBottom: '16px', color: '#4b5563' } }, '選択したタブの付箋一覧'),
-          getPrintableTabs().map((tab, tabIndex) => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('section', { key: tab.id, className: tabIndex < getPrintableTabs().length - 1 ? 'print-page-break' : '', style: { marginBottom: '20px' } }, e('h2', { style: { fontSize: '18px', fontWeight: 'bold', borderBottom: '1px solid #d1d5db', paddingBottom: '6px', marginBottom: '10px' } }, tab.name), tabNotes.length === 0 ? e('p', { style: { color: '#6b7280' } }, '付箋がありません。') : e('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' } }, tabNotes.map(note => e('div', { key: note.id, style: { border: '1px solid #d1d5db', borderRadius: '8px', padding: '10px', minHeight: '60px', whiteSpace: 'pre-wrap', breakInside: 'avoid', background: '#fef3c7' } }, note.text || '（空）')))); })
+          getPrintableTabs().map((tab, tabIndex) => { const tabNotes = notes.filter(note => note.tabId === tab.id); return e('section', { key: tab.id, className: tabIndex < getPrintableTabs().length - 1 ? 'print-page-break' : '', style: { marginBottom: '20px' } }, e('h2', { style: { fontSize: '18px', fontWeight: 'bold', borderBottom: '1px solid #d1d5db', paddingBottom: '6px', marginBottom: '10px' } }, tab.name), tabNotes.length === 0 ? e('p', { style: { color: '#6b7280' } }, '付箋がありません。') : e('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' } }, tabNotes.map(note => e('div', { key: note.id, style: { border: '1px solid #d1d5db', borderRadius: '8px', padding: '10px', minHeight: '60px', whiteSpace: 'pre-wrap', breakInside: 'avoid', background: '#fef3c7' } },
+            Array.isArray(note.tags) && note.tags.length > 0 && e('div', { style: { fontSize: '11px', color: '#4b5563', marginBottom: '6px' } }, note.tags.map(tag => `#${tag}`).join(' ')),
+            e('div', null, note.text || '（空）')
+          )))); })
         )
       );
     }
