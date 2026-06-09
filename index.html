@@ -543,8 +543,8 @@
       };
 
       const addNoteAtBoardPosition = (ev) => {
-        if (!boardRef.current || overviewMode) return;
-        if (ev.target.closest('[data-all-notes-panel="true"]') || ev.target.closest('[data-board-note="true"]') || ev.target.closest('button') || ev.target.closest('textarea') || ev.target.closest('input')) return;
+        if (!boardRef.current || overviewMode || notes.some(note => note.isEditing)) return;
+        if (ev.target.closest('[data-all-notes-panel="true"]') || ev.target.closest('[data-note-edit-modal="true"]') || ev.target.closest('[data-board-note="true"]') || ev.target.closest('button') || ev.target.closest('textarea') || ev.target.closest('input')) return;
         const boardRect = boardRef.current.getBoundingClientRect();
         const metrics = getBoardMetrics();
         const clickX = ev.clientX - boardRect.left;
@@ -1114,19 +1114,19 @@
                   e('div', { className: 'resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize flex items-end justify-end p-1 opacity-50 hover:opacity-100', onMouseDown: ev => handleResizeDown(ev, note.id), onTouchStart: ev => handleResizeDown(ev, note.id) }, e('svg', { width: '8', height: '8', viewBox: '0 0 10 10', fill: 'none', xmlns: 'http://www.w3.org/2000/svg' }, e('path', { d: 'M10 0V10H0L10 0Z', fill: 'currentColor', className: 'text-black/50' })))
                 );
               }),
-              editingNote && e('div', { className: 'fixed inset-0 z-[20000] bg-black/50 flex items-center justify-center p-4', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation() },
-                e('div', { className: 'bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation() },
-                  e('div', { className: 'px-5 py-4 border-b border-gray-200 flex items-start justify-between gap-4' },
+              editingNote && e('div', { 'data-note-edit-modal': 'true', className: 'fixed inset-0 z-[20000] bg-black/50 flex items-center justify-center p-3', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onDoubleClick: ev => ev.stopPropagation() },
+                e('div', { className: 'bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[82vh] overflow-hidden flex flex-col', onMouseDown: ev => ev.stopPropagation(), onTouchStart: ev => ev.stopPropagation(), onDoubleClick: ev => ev.stopPropagation() },
+                  e('div', { className: 'px-4 py-3 border-b border-gray-200 flex items-start justify-between gap-4' },
                     e('div', null,
                       e('h2', { className: 'text-lg font-bold text-gray-900' }, '付箋を編集'),
                       e('p', { className: 'text-xs text-gray-500 mt-1' }, `${getTabName(editingNote.tabId)}・行 ${((editingNote.gridRow ?? 0) + 1)}・列 ${((editingNote.gridColumn ?? 0) + 1)}`)
                     ),
                     e('button', { 'data-no-drag': 'true', onClick: ev => { ev.stopPropagation(); commitNoteEdit(editingNote.id); }, className: 'text-gray-400 hover:text-gray-700 text-2xl leading-none px-2', title: '閉じる' }, '×')
                   ),
-                  e('div', { className: 'p-5 overflow-y-auto space-y-5' },
+                  e('div', { className: 'p-4 overflow-y-auto space-y-4' },
                     e('div', null,
                       e('label', { className: 'block text-sm font-bold text-gray-700 mb-2' }, '本文'),
-                      e('textarea', { 'data-no-drag': 'true', value: editingNote.text, onChange: ev => updateNote(editingNote.id, 'text', ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter' && ev.ctrlKey) { ev.preventDefault(); commitNoteEdit(editingNote.id); } }, autoFocus: true, className: 'w-full h-40 bg-gray-50 border border-gray-300 rounded-lg p-3 text-base focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y', placeholder: '情報を入力...' }),
+                      e('textarea', { 'data-no-drag': 'true', value: editingNote.text, onChange: ev => updateNote(editingNote.id, 'text', ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter' && ev.ctrlKey) { ev.preventDefault(); commitNoteEdit(editingNote.id); } }, autoFocus: true, className: 'w-full h-28 bg-gray-50 border border-gray-300 rounded-lg p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y', placeholder: '情報を入力...' }),
                       e('p', { className: 'text-xs text-gray-400 mt-1' }, 'Ctrl + Enter でも保存できます。')
                     ),
                     e('div', null,
@@ -1167,7 +1167,7 @@
                       )
                     )
                   ),
-                  e('div', { className: 'px-5 py-4 border-t border-gray-200 bg-gray-50 flex flex-wrap justify-end gap-3' },
+                  e('div', { className: 'px-4 py-3 border-t border-gray-200 bg-gray-50 flex flex-wrap justify-end gap-3' },
                     e('button', { 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); deleteNote(editingNote.id); }, className: 'px-4 py-2 rounded-md bg-red-50 text-red-700 text-sm font-bold hover:bg-red-100 mr-auto' }, 'この付箋を削除'),
                     e('button', { 'data-no-drag': 'true', type: 'button', onClick: ev => { ev.stopPropagation(); commitNoteEdit(editingNote.id); }, className: 'px-5 py-2 rounded-md bg-blue-600 text-white text-sm font-bold hover:bg-blue-700' }, '保存して閉じる')
                   )
