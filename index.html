@@ -102,6 +102,20 @@
           return null;
         }
       });
+      const [boardList, setBoardList] = useState(() => {
+        try {
+          const savedBoards = localStorage.getItem('fusen_board_menu_list_v1');
+          const parsedBoards = savedBoards ? JSON.parse(savedBoards) : null;
+          if (Array.isArray(parsedBoards) && parsedBoards.length > 0) return parsedBoards;
+        } catch (error) {
+          console.error('ボード一覧の読み込みに失敗しました', error);
+        }
+        return [{ id: 'default-board', name: 'メインボード', updatedAt: Date.now(), noteCount: 0, tabCount: 1 }];
+      });
+      const [currentBoardId, setCurrentBoardId] = useState('default-board');
+      const [boardName, setBoardName] = useState('メインボード');
+      const [boardOpened, setBoardOpened] = useState(false);
+      const [newBoardName, setNewBoardName] = useState('');
 
       const colors = [
         'bg-yellow-200 border-yellow-300 text-yellow-900',
@@ -130,8 +144,10 @@
       const BOARD_PADDING = 16;
       const NOTE_INSET = 0;
       const SIDE_PANEL_WIDTH = 384;
-      const FIREBASE_BOARD_ID = 'default-board';
+      const DEFAULT_FIREBASE_BOARD_ID = 'default-board';
+      const BOARD_LIST_STORAGE_KEY = 'fusen_board_menu_list_v1';
       const FIREBASE_CONFIG_STORAGE_KEY = 'fusen_firebase_config_v1';
+      const getBoardStorageKey = (boardId = currentBoardId) => boardId === DEFAULT_FIREBASE_BOARD_ID ? STORAGE_KEY : `${STORAGE_KEY}_${boardId}`;
       const firebaseConfig = firebaseConfigState || {};
       const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
 
@@ -248,6 +264,8 @@
         rawData,
         selectedTitleCol,
         selectedRowIndices: [...selectedRowIndices],
+        boardId: currentBoardId,
+        boardName,
         updatedBy: clientIdRef.current,
         boardUpdatedAt: Date.now()
       });
@@ -334,13 +352,29 @@
       };
 
       const saveBoardData = (statusPrefix = '保存済み') => {
+        if (!boardOpened) return;
         try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(getSaveData()));
+          const now = Date.now();
+          const saveData = { ...getSaveData(), boardUpdatedAt: now };
+          localStorage.setItem(getBoardStorageKey(), JSON.stringify(saveData));
           const time = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+          const boardMeta = {
+            id: currentBoardId,
+            name: boardName || '無題のボード',
+            updatedAt: now,
+            noteCount: notes.length,
+            tabCount: tabs.length
+          };
+          setBoardList(prevBoards => {
+            const nextBoards = [boardMeta, ...prevBoards.filter(board => board.id !== currentBoardId)]
+              .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+            localStorage.setItem(BOARD_LIST_STORAGE_KEY, JSON.stringify(nextBoards));
+            return nextBoards;
+          });
           setSaveStatus(`${statusPrefix} ${time}`);
           if (isFirebaseConfigured && firebaseDbRef.current && !remoteUpdateRef.current) {
-            firebaseDbRef.current.collection('boards').doc(FIREBASE_BOARD_ID).set({
-              ...getSaveData(),
+            firebaseDbRef.current.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID).set({
+              ...saveData,
               updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true }).then(() => {
               setFirebaseStatus(`共有済み ${time}`);
@@ -385,30 +419,123 @@
         setSaveStatus('一つ戻しました');
       };
 
+      const createEmptyBoardData = (name = '新しいボード') => ({
+        notes: [],
+        tabs: [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }],
+        deletedNoteIds: {},
+        deletedTabIds: {},
+        activeTabId: 'tab-1',
+        selectedTabIds: ['tab-1'],
+        highestZIndex: 1,
+        pastedText: '',
+        columns: [],
+        rawData: [],
+        selectedTitleCol: '',
+        selectedRowIndices: [],
+        boardName: name,
+        boardUpdatedAt: Date.now()
+      });
+
+      const applyLoadedBoardData = (saved = {}) => {
+        const savedDeletedNoteIds = normalizeDeletedMap(saved.deletedNoteIds);
+        const savedDeletedTabIds = normalizeDeletedMap(saved.deletedTabIds);
+        const loadedTabs = Array.isArray(saved.tabs) && saved.tabs.length > 0
+          ? saved.tabs.map(normalizeTab).filter(tab => !(savedDeletedTabIds[tab.id] && savedDeletedTabIds[tab.id] >= (tab.updatedAt || 0)))
+          : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }];
+        setDeletedNoteIds(savedDeletedNoteIds);
+        setDeletedTabIds(savedDeletedTabIds);
+        setNotes(Array.isArray(saved.notes) ? saved.notes.map(({ memo, ...note }) => normalizeNote(note)).filter(note => !(savedDeletedNoteIds[note.id] && savedDeletedNoteIds[note.id] >= (note.updatedAt || 0))) : []);
+        setTabs(loadedTabs.length > 0 ? loadedTabs : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
+        setActiveTabId(saved.activeTabId || loadedTabs[0]?.id || 'tab-1');
+        setSelectedTabIds(new Set(Array.isArray(saved.selectedTabIds) && saved.selectedTabIds.length > 0 ? saved.selectedTabIds : [loadedTabs[0]?.id || 'tab-1']));
+        setHighestZIndex(Number.isFinite(saved.highestZIndex) ? saved.highestZIndex : 1);
+        setPastedText(saved.pastedText || '');
+        setColumns(Array.isArray(saved.columns) ? saved.columns : []);
+        setRawData(Array.isArray(saved.rawData) ? saved.rawData : []);
+        setSelectedTitleCol(saved.selectedTitleCol || '');
+        setSelectedRowIndices(new Set(Array.isArray(saved.selectedRowIndices) ? saved.selectedRowIndices : []));
+        setSelectedNoteIds(new Set());
+        setDraggingId(null);
+        setResizingId(null);
+        setDraggedListNoteId(null);
+        undoHistoryRef.current = [];
+        setCanUndo(false);
+      };
+
+      const openBoardFromMenu = (boardId) => {
+        const targetBoard = boardList.find(board => board.id === boardId) || { id: boardId, name: '無題のボード' };
+        try {
+          const savedText = localStorage.getItem(getBoardStorageKey(boardId));
+          const saved = savedText ? JSON.parse(savedText) : createEmptyBoardData(targetBoard.name);
+          setCurrentBoardId(boardId);
+          setBoardName(saved.boardName || targetBoard.name || '無題のボード');
+          applyLoadedBoardData(saved);
+          setBoardOpened(true);
+          skipInitialSaveRef.current = true;
+          setSaveStatus('ボードを開きました');
+        } catch (error) {
+          console.error('ボードの読み込みに失敗しました', error);
+          window.alert('ボードを読み込めませんでした。');
+        }
+      };
+
+      const createBoardFromMenu = () => {
+        const name = (newBoardName || '').trim() || `ボード ${boardList.length + 1}`;
+        const boardId = `board-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const emptyBoard = createEmptyBoardData(name);
+        const boardMeta = { id: boardId, name, updatedAt: Date.now(), noteCount: 0, tabCount: 1 };
+        localStorage.setItem(getBoardStorageKey(boardId), JSON.stringify({ ...emptyBoard, boardId }));
+        setBoardList(prevBoards => {
+          const nextBoards = [boardMeta, ...prevBoards].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+          localStorage.setItem(BOARD_LIST_STORAGE_KEY, JSON.stringify(nextBoards));
+          return nextBoards;
+        });
+        setNewBoardName('');
+        setCurrentBoardId(boardId);
+        setBoardName(name);
+        applyLoadedBoardData(emptyBoard);
+        setBoardOpened(true);
+        skipInitialSaveRef.current = true;
+        setSaveStatus('新しいボードを作成しました');
+      };
+
+      const deleteBoardFromMenu = (boardId) => {
+        const targetBoard = boardList.find(board => board.id === boardId);
+        const ok = window.confirm(`「${targetBoard ? targetBoard.name : 'このボード'}」を削除します。よろしいですか？`);
+        if (!ok) return;
+        localStorage.removeItem(getBoardStorageKey(boardId));
+        setBoardList(prevBoards => {
+          const nextBoards = prevBoards.filter(board => board.id !== boardId);
+          localStorage.setItem(BOARD_LIST_STORAGE_KEY, JSON.stringify(nextBoards));
+          return nextBoards;
+        });
+        if (currentBoardId === boardId) setBoardOpened(false);
+      };
+
       useEffect(() => {
         try {
-          const savedText = localStorage.getItem(STORAGE_KEY);
+          const savedText = localStorage.getItem(getBoardStorageKey(DEFAULT_FIREBASE_BOARD_ID));
           if (!savedText) {
-            setSaveStatus('新規データ');
+            setSaveStatus('ボードを選択してください');
             return;
           }
-
           const saved = JSON.parse(savedText);
-          const savedDeletedNoteIds = normalizeDeletedMap(saved.deletedNoteIds);
-          const savedDeletedTabIds = normalizeDeletedMap(saved.deletedTabIds);
-          setDeletedNoteIds(savedDeletedNoteIds);
-          setDeletedTabIds(savedDeletedTabIds);
-          setNotes(Array.isArray(saved.notes) ? saved.notes.map(({ memo, ...note }) => normalizeNote(note)).filter(note => !(savedDeletedNoteIds[note.id] && savedDeletedNoteIds[note.id] >= (note.updatedAt || 0))) : []);
-          setTabs(Array.isArray(saved.tabs) && saved.tabs.length > 0 ? saved.tabs.map(normalizeTab).filter(tab => !(savedDeletedTabIds[tab.id] && savedDeletedTabIds[tab.id] >= (tab.updatedAt || 0))) : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
-          setActiveTabId(saved.activeTabId || 'tab-1');
-          setSelectedTabIds(new Set(Array.isArray(saved.selectedTabIds) && saved.selectedTabIds.length > 0 ? saved.selectedTabIds : ['tab-1']));
-          setHighestZIndex(Number.isFinite(saved.highestZIndex) ? saved.highestZIndex : 1);
-          setPastedText(saved.pastedText || '');
-          setColumns(Array.isArray(saved.columns) ? saved.columns : []);
-          setRawData(Array.isArray(saved.rawData) ? saved.rawData : []);
-          setSelectedTitleCol(saved.selectedTitleCol || '');
-          setSelectedRowIndices(new Set(Array.isArray(saved.selectedRowIndices) ? saved.selectedRowIndices : []));
-          setSaveStatus('保存データを読み込みました');
+          if (boardList.length === 1 && boardList[0]?.id === DEFAULT_FIREBASE_BOARD_ID) {
+            setBoardList(prevBoards => {
+              const nextBoards = prevBoards.map(board => board.id === DEFAULT_FIREBASE_BOARD_ID ? {
+                ...board,
+                name: saved.boardName || board.name,
+                updatedAt: saved.boardUpdatedAt || board.updatedAt || Date.now(),
+                noteCount: Array.isArray(saved.notes) ? saved.notes.length : 0,
+                tabCount: Array.isArray(saved.tabs) ? saved.tabs.length : 1
+              } : board);
+              localStorage.setItem(BOARD_LIST_STORAGE_KEY, JSON.stringify(nextBoards));
+              return nextBoards;
+            });
+          }
+          applyLoadedBoardData(saved);
+          setBoardName(saved.boardName || 'メインボード');
+          setSaveStatus('保存データを確認しました');
         } catch (error) {
           console.error('保存データの読み込みに失敗しました', error);
           setSaveStatus('保存データの読み込みに失敗しました');
@@ -421,6 +548,7 @@
       useEffect(() => { deletedTabIdsRef.current = deletedTabIds; }, [deletedTabIds]);
 
       useEffect(() => {
+        if (!boardOpened) return;
         if (skipInitialSaveRef.current) {
           skipInitialSaveRef.current = false;
           return;
@@ -435,9 +563,14 @@
         }, 600);
 
         return () => clearTimeout(timer);
-      }, [notes, tabs, deletedNoteIds, deletedTabIds, activeTabId, selectedTabIds, highestZIndex, pastedText, columns, rawData, selectedTitleCol, selectedRowIndices]);
+      }, [notes, tabs, deletedNoteIds, deletedTabIds, activeTabId, selectedTabIds, highestZIndex, pastedText, columns, rawData, selectedTitleCol, selectedRowIndices, boardOpened, currentBoardId, boardName]);
 
       useEffect(() => {
+        if (!boardOpened) {
+          firebaseDbRef.current = null;
+          setFirebaseStatus('ボード未選択');
+          return;
+        }
         if (!isFirebaseConfigured) {
           firebaseDbRef.current = null;
           setFirebaseStatus('Firebase設定待ち');
@@ -452,7 +585,7 @@
           if (!window.firebase.apps.length) window.firebase.initializeApp(firebaseConfig);
           const db = window.firebase.firestore();
           firebaseDbRef.current = db;
-          const boardDoc = db.collection('boards').doc(FIREBASE_BOARD_ID);
+          const boardDoc = db.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID);
           setFirebaseStatus('Firebase接続中');
 
           const unsubscribe = boardDoc.onSnapshot(snapshot => {
@@ -498,7 +631,7 @@
           console.error('Firebaseの初期化に失敗しました', error);
           setFirebaseStatus('Firebase初期化エラー');
         }
-      }, [firebaseConfigState]);
+      }, [firebaseConfigState, boardOpened, currentBoardId]);
 
       const handlePaste = (e) => {
         const text = e.target.value;
@@ -992,6 +1125,57 @@
         );
       };
 
+      if (!boardOpened) {
+        const sortedBoards = [...boardList].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+        return e('div', { className: 'min-h-screen w-full bg-gradient-to-br from-slate-100 via-blue-50 to-cyan-50 text-gray-800 overflow-auto' },
+          e('div', { className: 'max-w-5xl mx-auto px-5 py-8' },
+            e('div', { className: 'mb-8' },
+              e('div', { className: 'inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/70 border border-white shadow-sm text-xs font-bold text-blue-700 mb-4' }, e(Icon, { name: 'layout-dashboard', size: 14 }), 'ボードメニュー'),
+              e('h1', { className: 'text-3xl font-black text-gray-900 tracking-tight' }, '付箋ボードを管理'),
+              e('p', { className: 'text-sm text-gray-600 mt-2' }, 'ここからボードを作成・保存済みボードを開く・不要なボードを削除できます。')
+            ),
+            e('div', { className: 'grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-5 items-start' },
+              e('div', { className: 'bg-white/90 rounded-2xl shadow-lg border border-white p-5' },
+                e('h2', { className: 'text-lg font-bold text-gray-900 mb-2' }, '新しいボード'),
+                e('p', { className: 'text-xs text-gray-500 mb-4' }, '話し合いのテーマごとにボードを分けて保存できます。'),
+                e('label', { className: 'block text-xs font-bold text-gray-600 mb-1' }, 'ボード名'),
+                e('input', { type: 'text', value: newBoardName, onChange: ev => setNewBoardName(ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter') createBoardFromMenu(); }, className: 'w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm', placeholder: '例：6月9日の話し合い' }),
+                e('button', { onClick: createBoardFromMenu, className: 'mt-4 w-full px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2' }, e(Icon, { name: 'plus', size: 16 }), '新しいボードを作成'),
+                e('div', { className: 'mt-5 rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800 leading-relaxed' },
+                  '作成したボードはこのブラウザに保存されます。Firebase設定済みの場合は、開いているボードIDごとにFirestoreへ共有保存されます。'
+                )
+              ),
+              e('div', { className: 'bg-white/90 rounded-2xl shadow-lg border border-white p-5' },
+                e('div', { className: 'flex items-center justify-between gap-3 mb-4' },
+                  e('div', null,
+                    e('h2', { className: 'text-lg font-bold text-gray-900' }, '保存済みボード'),
+                    e('p', { className: 'text-xs text-gray-500 mt-1' }, `${sortedBoards.length}件のボードがあります`)
+                  ),
+                  e('button', { onClick: () => openBoardFromMenu(DEFAULT_FIREBASE_BOARD_ID), className: 'px-3 py-2 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 text-xs font-bold flex items-center gap-1' }, e(Icon, { name: 'folder-open', size: 14 }), 'メインを開く')
+                ),
+                sortedBoards.length === 0 ? e('div', { className: 'text-center text-gray-400 py-12 border border-dashed border-gray-200 rounded-xl' }, 'まだボードがありません') :
+                e('div', { className: 'grid grid-cols-1 md:grid-cols-2 gap-3' },
+                  sortedBoards.map(board => e('div', { key: board.id, className: 'rounded-xl border border-gray-200 bg-white p-4 shadow-sm hover:shadow-md transition-shadow' },
+                    e('div', { className: 'flex items-start justify-between gap-3' },
+                      e('div', { className: 'min-w-0' },
+                        e('h3', { className: 'font-bold text-gray-900 truncate' }, board.name || '無題のボード'),
+                        e('p', { className: 'text-xs text-gray-500 mt-1' }, `付箋 ${board.noteCount || 0}件・タブ ${board.tabCount || 1}件`),
+                        e('p', { className: 'text-[11px] text-gray-400 mt-1' }, board.updatedAt ? `更新: ${new Date(board.updatedAt).toLocaleString('ja-JP')}` : '未保存')
+                      ),
+                      e('span', { className: 'text-[10px] px-2 py-1 rounded-full bg-gray-100 text-gray-500 shrink-0' }, board.id === DEFAULT_FIREBASE_BOARD_ID ? 'メイン' : '保存済み')
+                    ),
+                    e('div', { className: 'flex gap-2 mt-4' },
+                      e('button', { onClick: () => openBoardFromMenu(board.id), className: 'flex-1 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold flex items-center justify-center gap-1' }, e(Icon, { name: 'log-in', size: 14 }), '開く'),
+                      e('button', { onClick: () => deleteBoardFromMenu(board.id), className: 'px-3 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-xs font-bold', title: 'このボードを削除' }, '削除')
+                    )
+                  ))
+                )
+              )
+            )
+          )
+        );
+      }
+
       return e('div', { className: 'flex h-screen w-full bg-gray-50 overflow-hidden font-sans text-gray-800' },
         e('div', { className: `no-print bg-white shadow-xl flex flex-col transition-all duration-300 ease-in-out z-20 ${sidebarOpen ? 'w-80 border-r border-gray-200' : 'w-0 overflow-hidden'}` },
           e('div', { className: 'p-5 flex-1 overflow-y-auto scrollable-area w-80' },
@@ -1050,9 +1234,13 @@
             e('div', { className: 'p-3 flex flex-wrap justify-between items-center gap-2' },
               e('div', { className: 'flex items-center gap-3' },
                 e('button', { onClick: () => setSidebarOpen(!sidebarOpen), className: 'p-2 hover:bg-gray-100 rounded-md text-gray-600 transition-colors', title: sidebarOpen ? 'サイドバーを閉じる' : 'サイドバーを開く' }, e(Icon, { name: sidebarOpen ? 'minimize-2' : 'maximize-2', size: 20 })),
-                e('h1', { className: 'text-lg font-bold text-gray-800' }, 'ディスカッションボード')
+                e('div', null,
+                  e('h1', { className: 'text-lg font-bold text-gray-800' }, boardName || 'ディスカッションボード'),
+                  e('p', { className: 'text-[11px] text-gray-500' }, `ボードID: ${currentBoardId}`)
+                )
               ),
               e('div', { className: 'flex items-center gap-2 flex-wrap' },
+                e('button', { onClick: () => { saveBoardData('保存済み'); setBoardOpened(false); }, className: 'px-3 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'home', size: 16 }), 'メニュー'),
                 e('button', { onClick: addBlankNote, className: 'px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'plus', size: 16 }), '新しい付箋'),
                 e('button', { onClick: () => setShowAllNotesPanel(!showAllNotesPanel), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${showAllNotesPanel ? 'bg-slate-700 text-white hover:bg-slate-800' : 'bg-slate-50 text-slate-700 hover:bg-slate-100'}` }, e(Icon, { name: 'list-checks', size: 16 }), showAllNotesPanel ? '付箋一覧を閉じる' : `付箋一覧 ${notes.length}件`),
                 e('button', { onClick: () => { const next = !overviewMode; setOverviewMode(next); if (next) setSplitViewMode(false); }, className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${overviewMode ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}` }, e(Icon, { name: 'maximize-2', size: 16 }), overviewMode ? '通常表示' : '選択タブを一覧表示'),
