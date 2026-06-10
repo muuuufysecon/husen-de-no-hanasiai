@@ -116,6 +116,7 @@
       const [boardName, setBoardName] = useState('メインボード');
       const [boardOpened, setBoardOpened] = useState(false);
       const [newBoardName, setNewBoardName] = useState('');
+      const [joinBoardId, setJoinBoardId] = useState('');
       const [showManualManage, setShowManualManage] = useState(false);
       const [manualImportText, setManualImportText] = useState('');
 
@@ -499,6 +500,33 @@
         setBoardOpened(true);
         skipInitialSaveRef.current = true;
         setSaveStatus('新しいボードを作成しました');
+      };
+
+      const openBoardByIdFromMenu = () => {
+        const boardId = String(joinBoardId || '').trim();
+        if (!boardId) {
+          window.alert('入室するボードIDを入力してください。');
+          return;
+        }
+        if (!/^[A-Za-z0-9_-]{3,100}$/.test(boardId)) {
+          window.alert('ボードIDは半角英数字・ハイフン・アンダーバーのみで入力してください。');
+          return;
+        }
+        const targetBoard = boardList.find(board => board.id === boardId) || { id: boardId, name: `共有ボード（${boardId}）` };
+        try {
+          const savedText = localStorage.getItem(getBoardStorageKey(boardId));
+          const saved = savedText ? JSON.parse(savedText) : createEmptyBoardData(targetBoard.name);
+          setCurrentBoardId(boardId);
+          setBoardName(saved.boardName || targetBoard.name || `共有ボード（${boardId}）`);
+          applyLoadedBoardData({ ...saved, boardId, boardName: saved.boardName || targetBoard.name || `共有ボード（${boardId}）` });
+          setBoardOpened(true);
+          setJoinBoardId('');
+          skipInitialSaveRef.current = true;
+          setSaveStatus('ボードIDで入室しました');
+        } catch (error) {
+          console.error('ボードIDでの入室に失敗しました', error);
+          window.alert('指定したボードIDを開けませんでした。');
+        }
       };
 
       const deleteBoardFromMenu = (boardId) => {
@@ -1295,6 +1323,14 @@
                 e('button', { onClick: createBoardFromMenu, className: 'mt-4 w-full px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2' }, e(Icon, { name: 'plus', size: 16 }), '新しいボードを作成'),
                 e('div', { className: 'mt-5 rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800 leading-relaxed' },
                   '作成したボードはこのブラウザに保存されます。Firebase設定済みの場合は、開いているボードIDごとにFirestoreへ共有保存されます。'
+                ),
+                e('div', { className: 'mt-5 border-t border-gray-100 pt-5' },
+                  e('h2', { className: 'text-lg font-bold text-gray-900 mb-2' }, 'ボードIDで入室'),
+                  e('p', { className: 'text-xs text-gray-500 mb-4' }, '共有相手から受け取ったボードIDを入力して、同じFirebase共有ボードを開きます。'),
+                  e('label', { className: 'block text-xs font-bold text-gray-600 mb-1' }, 'ボードID'),
+                  e('input', { type: 'text', value: joinBoardId, onChange: ev => setJoinBoardId(ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter') openBoardByIdFromMenu(); }, className: 'w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-cyan-500 bg-white text-sm font-mono', placeholder: '例：default-board / board-...' }),
+                  e('button', { onClick: openBoardByIdFromMenu, disabled: !joinBoardId.trim(), className: `mt-4 w-full px-4 py-3 rounded-xl text-sm font-bold shadow-sm flex items-center justify-center gap-2 ${joinBoardId.trim() ? 'bg-cyan-600 text-white hover:bg-cyan-700' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}` }, e(Icon, { name: 'log-in', size: 16 }), 'このボードIDで入室'),
+                  e('p', { className: 'mt-3 text-[11px] text-gray-500 leading-relaxed' }, '入室後、Firebaseに保存済みのデータがあれば自動で同期されます。うまく反映されない時は「手動管理」から「手動取得」を押してください。')
                 )
               ),
               e('div', { className: 'bg-white/90 rounded-2xl shadow-lg border border-white p-5' },
