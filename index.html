@@ -9,7 +9,7 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/lucide@latest"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database-compat.js"></script>
   <style>
     html, body, #root { height: 100%; margin: 0; }
     body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
@@ -151,7 +151,11 @@
       const FIREBASE_CONFIG_STORAGE_KEY = 'fusen_firebase_config_v1';
       const getBoardStorageKey = (boardId = currentBoardId) => boardId === DEFAULT_FIREBASE_BOARD_ID ? STORAGE_KEY : `${STORAGE_KEY}_${boardId}`;
       const firebaseConfig = firebaseConfigState || {};
-      const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId);
+      const isFirebaseConfigured = Boolean(firebaseConfig.apiKey && firebaseConfig.projectId && firebaseConfig.appId && firebaseConfig.databaseURL);
+      const getRealtimeDatabaseBoardPath = (boardId = currentBoardId) => {
+        const safeBoardId = encodeURIComponent(String(boardId || DEFAULT_FIREBASE_BOARD_ID)).replace(/\./g, '%2E');
+        return `boards/${safeBoardId}`;
+      };
 
       const boardStyle = {
         backgroundColor: '#f3f4f6'
@@ -287,8 +291,8 @@
       };
 
       const applyFirebaseConfig = (config) => {
-        if (!config || !config.apiKey || !config.projectId || !config.appId) {
-          window.alert('Firebase設定に apiKey / projectId / appId が含まれているか確認してください。');
+        if (!config || !config.apiKey || !config.projectId || !config.appId || !config.databaseURL) {
+          window.alert('Firebase設定に apiKey / projectId / appId / databaseURL が含まれているか確認してください。');
           setFirebaseStatus('Firebase設定エラー');
           return;
         }
@@ -375,10 +379,10 @@
           });
           setSaveStatus(`${statusPrefix} ${time}`);
           if (isFirebaseConfigured && firebaseDbRef.current && !remoteUpdateRef.current) {
-            firebaseDbRef.current.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID).set({
+            firebaseDbRef.current.ref(getRealtimeDatabaseBoardPath()).set({
               ...saveData,
-              updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).then(() => {
+              updatedAt: Date.now()
+            }).then(() => {
               setFirebaseStatus(`共有済み ${time}`);
             }).catch(error => {
               console.error('Firebaseへの保存に失敗しました', error);
@@ -614,10 +618,10 @@
         }
         const now = Date.now();
         const saveData = { ...getSaveData(), boardUpdatedAt: now };
-        firebaseDbRef.current.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID).set({
+        firebaseDbRef.current.ref(getRealtimeDatabaseBoardPath()).set({
           ...saveData,
-          updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
-        }, { merge: true }).then(() => {
+          updatedAt: Date.now()
+        }).then(() => {
           setFirebaseStatus('手動アップロード完了');
           setSaveStatus('Firebaseへ手動保存しました');
         }).catch(error => {
@@ -632,13 +636,13 @@
           window.alert('Firebase設定を読み込んでから実行してください。');
           return;
         }
-        firebaseDbRef.current.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID).get().then(snapshot => {
+        firebaseDbRef.current.ref(getRealtimeDatabaseBoardPath()).get().then(snapshot => {
           if (!snapshot.exists) {
             window.alert('Firebase上にこのボードのデータがまだありません。');
             setFirebaseStatus('共有ボード未作成');
             return;
           }
-          const shared = snapshot.data() || {};
+          const shared = snapshot.val() || {};
           const ok = window.confirm('Firebase上のデータを読み込みます。現在の画面の内容とマージしますか？');
           if (!ok) return;
           remoteUpdateRef.current = true;
@@ -724,25 +728,25 @@
           setFirebaseStatus('Firebase設定待ち');
           return;
         }
-        if (!window.firebase || !window.firebase.firestore) {
+        if (!window.firebase || !window.firebase.database) {
           setFirebaseStatus('Firebase SDK読込エラー');
           return;
         }
 
         try {
           if (!window.firebase.apps.length) window.firebase.initializeApp(firebaseConfig);
-          const db = window.firebase.firestore();
+          const db = window.firebase.database();
           firebaseDbRef.current = db;
-          const boardDoc = db.collection('boards').doc(currentBoardId || DEFAULT_FIREBASE_BOARD_ID);
+          const boardRef = db.ref(getRealtimeDatabaseBoardPath());
           setFirebaseStatus('Firebase接続中');
 
-          const unsubscribe = boardDoc.onSnapshot(snapshot => {
+          const handleValue = snapshot => {
             if (!snapshot.exists) {
               setFirebaseStatus('共有ボード作成待ち');
               return;
             }
 
-            const shared = snapshot.data() || {};
+            const shared = snapshot.val() || {};
             if (shared.updatedBy === clientIdRef.current) return;
 
             remoteUpdateRef.current = true;
@@ -769,12 +773,14 @@
             setSelectedRowIndices(prev => Array.isArray(shared.selectedRowIndices) && shared.selectedRowIndices.length > 0 ? new Set(shared.selectedRowIndices) : prev);
             setSaveStatus('共有データをマージしました');
             setFirebaseStatus('共同編集中・付箋単位で同期');
-          }, error => {
+          };
+          const handleError = error => {
             console.error('Firebaseの同期に失敗しました', error);
             setFirebaseStatus('Firebase同期エラー');
-          });
+          };
+          boardRef.on('value', handleValue, handleError);
 
-          return () => unsubscribe();
+          return () => boardRef.off('value', handleValue);
         } catch (error) {
           console.error('Firebaseの初期化に失敗しました', error);
           setFirebaseStatus('Firebase初期化エラー');
@@ -1444,6 +1450,7 @@
                 e('div', { className: 'text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-md p-3 mb-4' },
                   e('p', { className: 'font-medium text-gray-700 mb-1' }, '現在の状態'),
                   e('p', null, firebaseConfig.projectId ? `Project ID: ${firebaseConfig.projectId}` : 'Firebase設定はまだ読み込まれていません。'),
+                  e('p', null, firebaseConfig.databaseURL ? `Database URL: ${firebaseConfig.databaseURL}` : 'Realtime Database URL が未設定です。'),
                   e('p', null, `状態: ${firebaseStatus}`)
                 ),
                 e('div', { className: 'flex justify-end gap-3' },
@@ -1474,7 +1481,7 @@
                   ),
                   e('div', { className: 'rounded-xl border border-blue-100 bg-blue-50/70 p-4' },
                     e('h4', { className: 'font-bold text-blue-900 mb-2' }, 'Firebaseを手動操作'),
-                    e('p', { className: 'text-xs text-blue-800 mb-3' }, `保存先: boards/${currentBoardId || DEFAULT_FIREBASE_BOARD_ID}`),
+                    e('p', { className: 'text-xs text-blue-800 mb-3' }, `保存先: ${getRealtimeDatabaseBoardPath()}`),
                     e('div', { className: 'flex gap-2' },
                       e('button', { onClick: manualPushToFirebase, className: 'flex-1 px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 text-xs font-bold' }, '手動アップロード'),
                       e('button', { onClick: manualPullFromFirebase, className: 'flex-1 px-3 py-2 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 text-xs font-bold' }, '手動取得')
