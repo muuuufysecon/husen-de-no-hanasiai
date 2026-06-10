@@ -153,7 +153,7 @@
           ...backgroundStyle,
           borderWidth: note.isHighlighted ? '4px' : '2px',
           borderStyle: 'solid',
-          borderColor: note.isHighlighted ? '#f97316' : 'rgba(17, 24, 39, 0.28)',
+          borderColor: note.isHighlighted ? '#f97316' : 'transparent',
           boxShadow: note.isHighlighted
             ? '0 0 0 4px rgba(249, 115, 22, 0.22), 0 10px 24px rgba(17, 24, 39, 0.18)'
             : '0 2px 8px rgba(17, 24, 39, 0.12)'
@@ -1137,21 +1137,22 @@
       const handlePointerUp = (e) => {
         const pointerStart = notePointerStartRef.current;
         if (draggingId) {
-          const dragGroupIds = groupDragStartRef.current?.noteIds?.length ? groupDragStartRef.current.noteIds : [draggingId];
-          snapNotesToGrid(dragGroupIds);
+          const endTouch = e?.changedTouches && e.changedTouches[0];
+          const endX = endTouch ? endTouch.clientX : (e?.clientX ?? pointerStart?.x);
+          const endY = endTouch ? endTouch.clientY : (e?.clientY ?? pointerStart?.y);
+          const moved = pointerStart && pointerStart.id === draggingId
+            ? Math.abs(endX - pointerStart.x) > 6 || Math.abs(endY - pointerStart.y) > 6
+            : true;
 
-          if (pointerStart && pointerStart.id === draggingId) {
-            const endTouch = e?.changedTouches && e.changedTouches[0];
-            const endX = endTouch ? endTouch.clientX : (e?.clientX ?? pointerStart.x);
-            const endY = endTouch ? endTouch.clientY : (e?.clientY ?? pointerStart.y);
-            const moved = Math.abs(endX - pointerStart.x) > 6 || Math.abs(endY - pointerStart.y) > 6;
-            if (!moved) {
-              setSelectedNoteIds(prev => {
-                const next = new Set(prev);
-                next.has(draggingId) ? next.delete(draggingId) : next.add(draggingId);
-                return next;
-              });
-            }
+          if (!moved) {
+            setSelectedNoteIds(prev => {
+              const next = new Set(prev);
+              next.has(draggingId) ? next.delete(draggingId) : next.add(draggingId);
+              return next;
+            });
+          } else {
+            const dragGroupIds = groupDragStartRef.current?.noteIds?.length ? groupDragStartRef.current.noteIds : [draggingId];
+            snapNotesToGrid(dragGroupIds);
           }
         }
         groupDragStartRef.current = null;
@@ -1730,7 +1731,7 @@
                 e('li', null, '「付箋一覧」や「選択タブを一覧表示」では、付箋をつかんで別のタブへ移動できます。'),
                 e('li', null, 'タグ追加では、新しいタグ入力のほか、これまでに作ったタグも選択できます。'),
                 e('li', null, '付箋にカーソルを重ねると、左上に選択チェックとタグ追加ボタンが表示されます。選択すると削除ボタンも表示されます。'),
-                e('li', null, 'すべての付箋に外枠が付きます。選択した付箋は「その他」メニューから強調表示・強調解除でき、強調中の付箋は太いオレンジ枠で表示されます。'),
+                e('li', null, '選択した付箋は「その他」メニューから強調表示・強調解除でき、強調中の付箋だけ太いオレンジ枠で表示されます。'),
                 e('li', null, 'ボード上で複数の付箋にチェックを入れてから、そのうち1枚をドラッグすると、選択した付箋をまとめて移動できます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
