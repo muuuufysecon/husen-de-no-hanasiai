@@ -79,6 +79,8 @@
       const editingCursorRef = useRef(null);
       const groupDragStartRef = useRef(null);
       const notePointerStartRef = useRef(null);
+      const longPressTimerRef = useRef(null);
+      const longPressSelectionRef = useRef(false);
       const [tabs, setTabs] = useState([{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
       const tabsRef = useRef([]);
       const [activeTabId, setActiveTabId] = useState('tab-1');
@@ -1043,6 +1045,19 @@
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
         notePointerStartRef.current = { id, x: clientX, y: clientY, wasSelected: selectedNoteIds.has(id) };
+        longPressSelectionRef.current = false;
+        if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = setTimeout(() => {
+          const pointerStart = notePointerStartRef.current;
+          if (!pointerStart || pointerStart.id !== id) return;
+          longPressSelectionRef.current = true;
+          setSelectedNoteIds(prev => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+          });
+          setSaveStatus('長押しで選択を切り替えました');
+        }, 550);
         const boardRect = boardRef.current.getBoundingClientRect();
         setOffset({ x: clientX - boardRect.left - note.x, y: clientY - boardRect.top - note.y });
       };
@@ -1068,6 +1083,13 @@
         if (e.type === 'touchmove') e.preventDefault();
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        const pointerStart = notePointerStartRef.current;
+        if (pointerStart && pointerStart.id === draggingId && (Math.abs(clientX - pointerStart.x) > 6 || Math.abs(clientY - pointerStart.y) > 6)) {
+          if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+          }
+        }
         if (resizingId) {
           const deltaX = clientX - resizeStartPos.x;
           const deltaY = clientY - resizeStartPos.y;
@@ -1145,16 +1167,19 @@
             : true;
 
           if (!moved) {
-            setSelectedNoteIds(prev => {
-              const next = new Set(prev);
-              next.has(draggingId) ? next.delete(draggingId) : next.add(draggingId);
-              return next;
-            });
+            if (!longPressSelectionRef.current) {
+              setSaveStatus('選択するには付箋を長押ししてください');
+            }
           } else {
             const dragGroupIds = groupDragStartRef.current?.noteIds?.length ? groupDragStartRef.current.noteIds : [draggingId];
             snapNotesToGrid(dragGroupIds);
           }
         }
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current);
+          longPressTimerRef.current = null;
+        }
+        longPressSelectionRef.current = false;
         groupDragStartRef.current = null;
         notePointerStartRef.current = null;
         setDraggingId(null);
@@ -1730,9 +1755,9 @@
                 e('li', null, '「画面分割」では、チェックしたタブのうち先頭3つまでを並べて表示できます。上部スライダーで表示領域を調節でき、付箋をマスにドロップするとその場所へ移動します。'),
                 e('li', null, '「付箋一覧」や「選択タブを一覧表示」では、付箋をつかんで別のタブへ移動できます。'),
                 e('li', null, 'タグ追加では、新しいタグ入力のほか、これまでに作ったタグも選択できます。'),
-                e('li', null, '付箋にカーソルを重ねると、左上に選択チェックとタグ追加ボタンが表示されます。選択すると削除ボタンも表示されます。'),
+                e('li', null, '付箋を長押しすると選択状態になり、もう一度長押しすると選択解除できます。付箋にカーソルを重ねると、左上にタグ追加ボタンが表示されます。'),
                 e('li', null, '選択した付箋は「その他」メニューから強調表示・強調解除でき、強調中の付箋だけ太いオレンジ枠で表示されます。'),
-                e('li', null, 'ボード上で複数の付箋にチェックを入れてから、そのうち1枚をドラッグすると、選択した付箋をまとめて移動できます。'),
+                e('li', null, 'ボード上で複数の付箋を長押しで選択してから、そのうち1枚をドラッグすると、選択した付箋をまとめて移動できます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
                 e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
                 e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。'),
