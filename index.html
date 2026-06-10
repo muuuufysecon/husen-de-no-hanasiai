@@ -17,20 +17,25 @@
     @media print {
       @page { size: A4 landscape; margin: 10mm; }
       body * { visibility: hidden !important; }
-      .print-area, .print-area * { visibility: visible !important; }
-      .print-area {
+      .print-board-target, .print-board-target * { visibility: visible !important; }
+      .print-board-target {
         display: block !important;
         position: absolute !important;
         left: 0 !important;
         top: 0 !important;
         width: 100% !important;
-        padding: 16px !important;
-        background: white !important;
+        height: auto !important;
+        overflow: visible !important;
+        background: #f3f4f6 !important;
         color: #111827 !important;
         font-family: sans-serif !important;
       }
+      .print-board-target > div {
+        overflow: visible !important;
+      }
+      .print-area { display: none !important; }
       .print-page-break { page-break-after: always; }
-      .no-print { display: none !important; }
+      .no-print, [data-all-notes-panel="true"], [data-note-edit-modal="true"] { display: none !important; }
     }
   </style>
 </head>
@@ -1759,7 +1764,7 @@
                 e('li', null, '選択した付箋は「その他」メニューから強調表示・強調解除でき、強調中の付箋だけ太いオレンジ枠で表示されます。'),
                 e('li', null, 'ボード上で複数の付箋を長押しで選択してから、そのうち1枚をドラッグすると、選択した付箋をまとめて移動できます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
-                e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
+                e('li', null, 'PDF化では、現在表示しているボード上の付箋配置をそのまま印刷します。'),
                 e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。'),
                 e('li', null, 'Firebase同期は付箋・タブごとの更新時刻で新しい内容を採用し、削除情報も同期します。'),
                 e('li', null, 'Firebase設定画面にコンフィグファイルをドロップすると、Firestoreでデータ共有・共同編集できます。')
@@ -1831,7 +1836,7 @@
               e('button', { onClick: addTab, className: 'px-3 py-2 text-gray-400 hover:text-blue-600 transition-colors ml-1 mb-1', title: '新しいタブを追加' }, e(Icon, { name: 'plus', size: 18 }))
             )
           ),
-          e('div', { ref: boardRef, className: 'flex-1 bg-gray-100 relative overflow-auto cursor-crosshair', style: boardStyle, onDragOver: allowBoardDrop, onDrop: handleBoardDrop, onDoubleClick: addNoteAtBoardPosition },
+          e('div', { ref: boardRef, className: 'print-board-target flex-1 bg-gray-100 relative overflow-auto cursor-crosshair', style: boardStyle, onDragOver: allowBoardDrop, onDrop: handleBoardDrop, onDoubleClick: addNoteAtBoardPosition },
             showClearConfirm && e('div', { className: 'absolute inset-0 z-50 flex items-center justify-center bg-black/50' }, e('div', { className: 'bg-white p-6 rounded-lg shadow-xl max-w-sm w-full mx-4' },
               e('h3', { className: 'text-lg font-bold text-gray-900 mb-2' }, '付箋を削除'),
               e('p', { className: 'text-sm text-gray-500 mb-6' }, '現在のタブにあるすべての付箋を削除しますか？この操作は取り消せません。'),
