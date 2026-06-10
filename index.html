@@ -116,6 +116,7 @@
       const [boardName, setBoardName] = useState('メインボード');
       const [boardOpened, setBoardOpened] = useState(false);
       const [newBoardName, setNewBoardName] = useState('');
+      const [newBoardId, setNewBoardId] = useState('');
       const [joinBoardId, setJoinBoardId] = useState('');
       const [showManualManage, setShowManualManage] = useState(false);
       const [manualImportText, setManualImportText] = useState('');
@@ -255,7 +256,7 @@
       };
 
       const getSaveData = () => ({
-        notes: notes.map(({ memo, ...note }) => ({ ...note, updatedAt: note.updatedAt || 0 })),
+        notes: notes.map(({ memo, isEditing, ...note }) => ({ ...note, updatedAt: note.updatedAt || 0 })),
         tabs: tabs.map(tab => ({ ...tab, updatedAt: tab.updatedAt || 0 })),
         deletedNoteIds,
         deletedTabIds,
@@ -328,7 +329,7 @@
         setFirebaseStatus('Firebase設定待ち');
       };
 
-      const normalizeNote = (note) => ({ ...note, tags: Array.isArray(note.tags) ? note.tags : [], updatedAt: Number.isFinite(note.updatedAt) ? note.updatedAt : 0 });
+      const normalizeNote = (note) => ({ ...note, isEditing: false, tags: Array.isArray(note.tags) ? note.tags : [], updatedAt: Number.isFinite(note.updatedAt) ? note.updatedAt : 0 });
       const normalizeTab = (tab) => ({ ...tab, updatedAt: Number.isFinite(tab.updatedAt) ? tab.updatedAt : 0 });
       const normalizeDeletedMap = (value) => value && typeof value === 'object' && !Array.isArray(value) ? value : {};
       const mergeDeletedMaps = (localMap, remoteMap) => {
@@ -484,7 +485,17 @@
 
       const createBoardFromMenu = () => {
         const name = (newBoardName || '').trim() || `ボード ${boardList.length + 1}`;
-        const boardId = `board-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const customBoardId = String(newBoardId || '').trim();
+        const boardId = customBoardId || `board-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        if (!/^[A-Za-z0-9_-]{3,100}$/.test(boardId)) {
+          window.alert('共有用ボードIDは半角英数字・ハイフン・アンダーバーのみ、3〜100文字で入力してください。');
+          return;
+        }
+        const alreadyExists = boardList.some(board => board.id === boardId) || Boolean(localStorage.getItem(getBoardStorageKey(boardId)));
+        if (alreadyExists) {
+          window.alert('このボードIDはこの端末ですでに使われています。保存済みボードから開くか、別のIDを指定してください。');
+          return;
+        }
         const emptyBoard = createEmptyBoardData(name);
         const boardMeta = { id: boardId, name, updatedAt: Date.now(), noteCount: 0, tabCount: 1 };
         localStorage.setItem(getBoardStorageKey(boardId), JSON.stringify({ ...emptyBoard, boardId }));
@@ -494,12 +505,13 @@
           return nextBoards;
         });
         setNewBoardName('');
+        setNewBoardId('');
         setCurrentBoardId(boardId);
         setBoardName(name);
         applyLoadedBoardData(emptyBoard);
         setBoardOpened(true);
         skipInitialSaveRef.current = true;
-        setSaveStatus('新しいボードを作成しました');
+        setSaveStatus(customBoardId ? '指定したボードIDで作成しました' : '新しいボードを作成しました');
       };
 
       const openBoardByIdFromMenu = () => {
@@ -674,9 +686,11 @@
           const mergedDeletedTabIds = mergeDeletedMaps(deletedTabIdsRef.current, shared.deletedTabIds);
           const mergedNotes = mergeItemsByUpdatedAt(notesRef.current, shared.notes, mergedDeletedNoteIds, normalizeNote);
           const mergedTabs = mergeItemsByUpdatedAt(tabsRef.current, shared.tabs, mergedDeletedTabIds, normalizeTab);
+          const localEditingNotes = new Map(notesRef.current.filter(note => note.isEditing).map(note => [note.id, note]));
+          const displayMergedNotes = mergedNotes.map(note => localEditingNotes.has(note.id) ? { ...note, ...localEditingNotes.get(note.id), isEditing: true } : { ...note, isEditing: false });
           setDeletedNoteIds(mergedDeletedNoteIds);
           setDeletedTabIds(mergedDeletedTabIds);
-          setNotes(mergedNotes);
+          setNotes(displayMergedNotes);
           setTabs(mergedTabs.length > 0 ? mergedTabs : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
           setBoardName(shared.boardName || boardName);
           setSaveStatus('Firebaseから手動取得しました');
@@ -733,6 +747,9 @@
           remoteUpdateRef.current = false;
           return;
         }
+        if (notes.some(note => note.isEditing)) {
+          return;
+        }
 
         const timer = setTimeout(() => {
           saveBoardData('自動保存済み');
@@ -778,9 +795,11 @@
             const mergedDeletedTabIds = mergeDeletedMaps(deletedTabIdsRef.current, shared.deletedTabIds);
             const mergedNotes = mergeItemsByUpdatedAt(notesRef.current, shared.notes, mergedDeletedNoteIds, normalizeNote);
             const mergedTabs = mergeItemsByUpdatedAt(tabsRef.current, shared.tabs, mergedDeletedTabIds, normalizeTab);
+            const localEditingNotes = new Map(notesRef.current.filter(note => note.isEditing).map(note => [note.id, note]));
+            const displayMergedNotes = mergedNotes.map(note => localEditingNotes.has(note.id) ? { ...note, ...localEditingNotes.get(note.id), isEditing: true } : { ...note, isEditing: false });
             setDeletedNoteIds(mergedDeletedNoteIds);
             setDeletedTabIds(mergedDeletedTabIds);
-            setNotes(mergedNotes);
+            setNotes(displayMergedNotes);
             setTabs(mergedTabs.length > 0 ? mergedTabs : [{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
             setActiveTabId(prev => (mergedTabs.some(tab => tab.id === prev) ? prev : (mergedTabs[0]?.id || 'tab-1')));
             setSelectedTabIds(prev => {
@@ -1106,7 +1125,7 @@
       };
       const startEditingNote = (id, field = 'text', ev = null) => {
         editingCursorRef.current = { id, field, offset: getCaretOffsetFromEvent(ev) };
-        updateNote(id, 'isEditing', true);
+        setNotes(prevNotes => prevNotes.map(note => note.id === id ? { ...note, isEditing: true } : note));
       };
       const handleEditKeyDown = (ev, id) => {
         if (ev.key === 'Enter' && !ev.shiftKey) {
@@ -1319,10 +1338,13 @@
                 e('h2', { className: 'text-lg font-bold text-gray-900 mb-2' }, '新しいボード'),
                 e('p', { className: 'text-xs text-gray-500 mb-4' }, '話し合いのテーマごとにボードを分けて保存できます。'),
                 e('label', { className: 'block text-xs font-bold text-gray-600 mb-1' }, 'ボード名'),
-                e('input', { type: 'text', value: newBoardName, onChange: ev => setNewBoardName(ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter') createBoardFromMenu(); }, className: 'w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm', placeholder: '例：6月9日の話し合い' }),
+                e('input', { type: 'text', value: newBoardName, onChange: ev => setNewBoardName(ev.target.value), className: 'w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm', placeholder: '例：6月9日の話し合い' }),
+                e('label', { className: 'block text-xs font-bold text-gray-600 mt-3 mb-1' }, '共有用ボードID（任意）'),
+                e('input', { type: 'text', value: newBoardId, onChange: ev => setNewBoardId(ev.target.value), onKeyDown: ev => { if (ev.key === 'Enter') createBoardFromMenu(); }, className: 'w-full px-3 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-sm font-mono', placeholder: '例：kirari-meeting-0610' }),
+                e('p', { className: 'mt-1 text-[11px] text-gray-500 leading-relaxed' }, '空欄の場合は自動でIDを作成します。共有相手には、このIDを伝えてください。'),
                 e('button', { onClick: createBoardFromMenu, className: 'mt-4 w-full px-4 py-3 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 shadow-sm flex items-center justify-center gap-2' }, e(Icon, { name: 'plus', size: 16 }), '新しいボードを作成'),
                 e('div', { className: 'mt-5 rounded-xl bg-blue-50 border border-blue-100 p-3 text-xs text-blue-800 leading-relaxed' },
-                  '作成したボードはこのブラウザに保存されます。Firebase設定済みの場合は、開いているボードIDごとにFirestoreへ共有保存されます。'
+                  '作成したボードはこのブラウザに保存されます。Firebase設定済みの場合は、開いているボードIDごとにFirestoreへ共有保存されます。共有用ボードIDを指定すると、別端末から同じIDで入室できます。'
                 ),
                 e('div', { className: 'mt-5 border-t border-gray-100 pt-5' },
                   e('h2', { className: 'text-lg font-bold text-gray-900 mb-2' }, 'ボードIDで入室'),
