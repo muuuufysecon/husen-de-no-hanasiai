@@ -541,6 +541,80 @@
         }
       };
 
+      const changeBoardIdFromMenu = (oldBoardId) => {
+        const targetBoard = boardList.find(board => board.id === oldBoardId) || { id: oldBoardId, name: '無題のボード' };
+        const input = window.prompt('新しいボードIDを入力してください。半角英数字・ハイフン・アンダーバーが使えます。', oldBoardId);
+        if (input === null) return;
+        const newBoardId = String(input || '').trim();
+        if (!newBoardId || newBoardId === oldBoardId) return;
+        if (!/^[A-Za-z0-9_-]{3,100}$/.test(newBoardId)) {
+          window.alert('ボードIDは半角英数字・ハイフン・アンダーバーのみ、3〜100文字で入力してください。');
+          return;
+        }
+        const alreadyExists = boardList.some(board => board.id === newBoardId) || Boolean(localStorage.getItem(getBoardStorageKey(newBoardId)));
+        if (alreadyExists) {
+          window.alert('このボードIDはすでに使われています。別のIDを指定してください。');
+          return;
+        }
+        const ok = window.confirm(`ボードIDを「${oldBoardId}」から「${newBoardId}」に変更します。共有相手には新しいIDを伝えてください。`);
+        if (!ok) return;
+
+        try {
+          const oldKey = getBoardStorageKey(oldBoardId);
+          const newKey = getBoardStorageKey(newBoardId);
+          const savedText = localStorage.getItem(oldKey);
+          const saved = savedText ? JSON.parse(savedText) : createEmptyBoardData(targetBoard.name || '無題のボード');
+          const now = Date.now();
+          const renamedData = {
+            ...saved,
+            boardId: newBoardId,
+            boardName: saved.boardName || targetBoard.name || '無題のボード',
+            boardUpdatedAt: now
+          };
+          localStorage.setItem(newKey, JSON.stringify(renamedData));
+          localStorage.removeItem(oldKey);
+
+          setBoardList(prevBoards => {
+            const renamedMeta = {
+              ...targetBoard,
+              id: newBoardId,
+              name: renamedData.boardName || targetBoard.name || '無題のボード',
+              updatedAt: now,
+              noteCount: Array.isArray(renamedData.notes) ? renamedData.notes.length : (targetBoard.noteCount || 0),
+              tabCount: Array.isArray(renamedData.tabs) ? renamedData.tabs.length : (targetBoard.tabCount || 1)
+            };
+            const nextBoards = [renamedMeta, ...prevBoards.filter(board => board.id !== oldBoardId && board.id !== newBoardId)]
+              .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+            localStorage.setItem(BOARD_LIST_STORAGE_KEY, JSON.stringify(nextBoards));
+            return nextBoards;
+          });
+
+          if (currentBoardId === oldBoardId) setCurrentBoardId(newBoardId);
+          setSaveStatus('ボードIDを変更しました');
+
+          if (isFirebaseConfigured && firebaseDbRef.current) {
+            firebaseDbRef.current.collection('boards').doc(newBoardId).set({
+              ...renamedData,
+              updatedBy: clientIdRef.current,
+              updatedAt: window.firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).then(() => {
+              return firebaseDbRef.current.collection('boards').doc(oldBoardId).delete().catch(error => {
+                console.warn('旧ボードIDのFirebaseデータ削除に失敗しました', error);
+              });
+            }).then(() => {
+              setFirebaseStatus('ボードID変更を共有しました');
+            }).catch(error => {
+              console.error('Firebase上のボードID変更に失敗しました', error);
+              setFirebaseStatus('Firebase ID変更エラー');
+              window.alert('端末内のボードIDは変更しましたが、Firebase上の変更に失敗しました。Firestoreのルールや通信状態を確認してください。');
+            });
+          }
+        } catch (error) {
+          console.error('ボードIDの変更に失敗しました', error);
+          window.alert('ボードIDを変更できませんでした。');
+        }
+      };
+
       const deleteBoardFromMenu = (boardId) => {
         const targetBoard = boardList.find(board => board.id === boardId);
         const ok = window.confirm(`「${targetBoard ? targetBoard.name : 'このボード'}」を削除します。よろしいですか？`);
@@ -1370,12 +1444,14 @@
                       e('div', { className: 'min-w-0' },
                         e('h3', { className: 'font-bold text-gray-900 truncate' }, board.name || '無題のボード'),
                         e('p', { className: 'text-xs text-gray-500 mt-1' }, `付箋 ${board.noteCount || 0}件・タブ ${board.tabCount || 1}件`),
+                        e('p', { className: 'text-[11px] text-gray-400 mt-1 font-mono break-all' }, `ID: ${board.id}`),
                         e('p', { className: 'text-[11px] text-gray-400 mt-1' }, board.updatedAt ? `更新: ${new Date(board.updatedAt).toLocaleString('ja-JP')}` : '未保存')
                       ),
                       e('span', { className: 'text-[10px] px-2 py-1 rounded-full bg-gray-100 text-gray-500 shrink-0' }, board.id === DEFAULT_FIREBASE_BOARD_ID ? 'メイン' : '保存済み')
                     ),
-                    e('div', { className: 'flex gap-2 mt-4' },
-                      e('button', { onClick: () => openBoardFromMenu(board.id), className: 'flex-1 px-3 py-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold flex items-center justify-center gap-1' }, e(Icon, { name: 'log-in', size: 14 }), '開く'),
+                    e('div', { className: 'flex flex-wrap gap-2 mt-4' },
+                      e('button', { onClick: () => openBoardFromMenu(board.id), className: 'flex-1 min-w-[96px] px-3 py-2 rounded-lg bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold flex items-center justify-center gap-1' }, e(Icon, { name: 'log-in', size: 14 }), '開く'),
+                      e('button', { onClick: () => changeBoardIdFromMenu(board.id), className: 'px-3 py-2 rounded-lg bg-cyan-50 text-cyan-700 hover:bg-cyan-100 text-xs font-bold flex items-center justify-center gap-1', title: 'このボードのIDを変更' }, e(Icon, { name: 'edit-3', size: 13 }), 'ID変更'),
                       e('button', { onClick: () => deleteBoardFromMenu(board.id), className: 'px-3 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 text-xs font-bold', title: 'このボードを削除' }, '削除')
                     )
                   ))
