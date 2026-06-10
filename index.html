@@ -78,6 +78,7 @@
       const skipInitialSaveRef = useRef(true);
       const editingCursorRef = useRef(null);
       const groupDragStartRef = useRef(null);
+      const notePointerStartRef = useRef(null);
       const [tabs, setTabs] = useState([{ id: 'tab-1', name: 'メインボード', updatedAt: Date.now() }]);
       const tabsRef = useRef([]);
       const [activeTabId, setActiveTabId] = useState('tab-1');
@@ -1012,7 +1013,6 @@
         const dragGroupIds = selectedNoteIds.has(id) && selectedNoteIds.size > 1
           ? [...selectedNoteIds].filter(noteId => notes.some(n => n.id === noteId && n.tabId === note.tabId))
           : [id];
-        if (!selectedNoteIds.has(id)) setSelectedNoteIds(new Set([id]));
         groupDragStartRef.current = {
           draggedId: id,
           noteIds: dragGroupIds,
@@ -1031,6 +1031,7 @@
         setDraggingId(id);
         const clientX = e.type.includes('touch') ? e.touches[0].clientX : e.clientX;
         const clientY = e.type.includes('touch') ? e.touches[0].clientY : e.clientY;
+        notePointerStartRef.current = { id, x: clientX, y: clientY, wasSelected: selectedNoteIds.has(id) };
         const boardRect = boardRef.current.getBoundingClientRect();
         setOffset({ x: clientX - boardRect.left - note.x, y: clientY - boardRect.top - note.y });
       };
@@ -1122,12 +1123,28 @@
       };
       const snapNoteToGrid = (id) => snapNotesToGrid([id]);
 
-      const handlePointerUp = () => {
+      const handlePointerUp = (e) => {
+        const pointerStart = notePointerStartRef.current;
         if (draggingId) {
           const dragGroupIds = groupDragStartRef.current?.noteIds?.length ? groupDragStartRef.current.noteIds : [draggingId];
           snapNotesToGrid(dragGroupIds);
+
+          if (pointerStart && pointerStart.id === draggingId) {
+            const endTouch = e?.changedTouches && e.changedTouches[0];
+            const endX = endTouch ? endTouch.clientX : (e?.clientX ?? pointerStart.x);
+            const endY = endTouch ? endTouch.clientY : (e?.clientY ?? pointerStart.y);
+            const moved = Math.abs(endX - pointerStart.x) > 6 || Math.abs(endY - pointerStart.y) > 6;
+            if (!moved) {
+              setSelectedNoteIds(prev => {
+                const next = new Set(prev);
+                next.has(draggingId) ? next.delete(draggingId) : next.add(draggingId);
+                return next;
+              });
+            }
+          }
         }
         groupDragStartRef.current = null;
+        notePointerStartRef.current = null;
         setDraggingId(null);
         setResizingId(null);
       };
@@ -1707,7 +1724,7 @@
           )
         ),
         e('div', { className: 'flex-1 flex flex-col relative' },
-          e('div', { className: 'no-print bg-white/90 backdrop-blur-sm border-b border-gray-200 shadow-sm z-10 w-full flex flex-col shrink-0' },
+          e('div', { className: 'no-print bg-white/90 backdrop-blur-sm border-b border-gray-200 shadow-sm z-[30000] w-full flex flex-col shrink-0' },
             e('div', { className: `relative px-3 py-2 flex flex-wrap justify-between items-center gap-2 ${focusMode ? 'py-1.5' : ''}` },
               e('div', { className: 'flex items-center gap-2 min-w-0' },
                 !focusMode && e('button', { onClick: () => setSidebarOpen(!sidebarOpen), className: 'p-2 hover:bg-gray-100 rounded-md text-gray-600 transition-colors', title: sidebarOpen ? 'サイドバーを閉じる' : 'サイドバーを開く' }, e(Icon, { name: sidebarOpen ? 'minimize-2' : 'maximize-2', size: 20 })),
@@ -1736,7 +1753,7 @@
                 e('button', { onClick: () => { setFocusMode(true); setSidebarOpen(false); setShowMoreMenu(false); }, className: 'px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-md flex items-center gap-2 text-sm font-medium transition-colors' }, e(Icon, { name: 'expand', size: 16 }), '集中表示'),
                 e('button', { onClick: () => setShowMoreMenu(!showMoreMenu), className: `px-3 py-2 rounded-md flex items-center gap-2 text-sm font-medium transition-colors ${showMoreMenu ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}` }, e(Icon, { name: 'more-horizontal', size: 16 }), 'その他'),
                 e('span', { className: 'text-xs text-gray-500 max-w-[120px] truncate' }, saveStatus),
-                showMoreMenu && e('div', { className: 'absolute right-3 top-full mt-1 z-50 w-72 rounded-xl border border-gray-200 bg-white shadow-xl p-3 space-y-2' },
+                showMoreMenu && e('div', { className: 'absolute right-3 top-full mt-1 z-[40000] w-72 rounded-xl border border-gray-200 bg-white shadow-xl p-3 space-y-2' },
                   e('div', { className: 'text-xs font-bold text-gray-500 px-1 pb-1 border-b border-gray-100' }, '操作メニュー'),
                   e('button', { onClick: () => { setShowAllNotesPanel(!showAllNotesPanel); setShowMoreMenu(false); }, className: 'w-full px-3 py-2 rounded-md text-left text-sm bg-slate-50 text-slate-700 hover:bg-slate-100 flex items-center gap-2' }, e(Icon, { name: 'list-checks', size: 15 }), showAllNotesPanel ? '付箋一覧を閉じる' : `付箋一覧 ${notes.length}件`),
                   e('button', { onClick: () => { const next = !overviewMode; setOverviewMode(next); if (next) setSplitViewMode(false); setShowMoreMenu(false); }, className: 'w-full px-3 py-2 rounded-md text-left text-sm bg-purple-50 text-purple-700 hover:bg-purple-100 flex items-center gap-2' }, e(Icon, { name: 'maximize-2', size: 15 }), overviewMode ? '通常表示に戻す' : '選択タブを一覧表示'),
