@@ -270,10 +270,7 @@
         setActiveTabId(targetTabId);
         setDraggedListNoteId(null);
       };
-      const getPrintableTabs = () => {
-        const selectedTabs = tabs.filter(tab => selectedTabIds.has(tab.id));
-        return selectedTabs.length > 0 ? selectedTabs : tabs.filter(tab => tab.id === activeTabId);
-      };
+      const getPrintableTabs = () => tabs;
 
       const getSaveData = () => ({
         notes: notes.map(({ memo, isEditing, ...note }) => ({ ...note, updatedAt: note.updatedAt || 0 })),
@@ -1759,7 +1756,7 @@
                 e('li', null, '選択した付箋は「その他」メニューから強調表示・強調解除でき、強調中の付箋だけ太いオレンジ枠で表示されます。'),
                 e('li', null, 'ボード上で複数の付箋を長押しで選択してから、そのうち1枚をドラッグすると、選択した付箋をまとめて移動できます。'),
                 e('li', null, '「付箋一覧」から複数の付箋を選び、一括で色変更・削除ができます。'),
-                e('li', null, 'タブ左のチェックを入れたタブが、一覧表示とPDF化の対象です。'),
+                e('li', null, 'PDF化では、チェックの有無に関係なく全てのタブをPDF化します。タブ左のチェックは一覧表示の対象に使います。'),
                 e('li', null, '付箋・タブ・貼り付けデータは、このブラウザに自動保存されます。'),
                 e('li', null, 'Firebase同期は付箋・タブごとの更新時刻で新しい内容を採用し、削除情報も同期します。'),
                 e('li', null, 'Firebase設定画面にコンフィグファイルをドロップすると、Firestoreでデータ共有・共同編集できます。')
